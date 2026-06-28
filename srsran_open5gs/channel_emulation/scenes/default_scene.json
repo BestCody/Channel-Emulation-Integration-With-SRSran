@@ -1,23 +1,16 @@
 {
-  "scene": "simple_reflector",
+  "scene": "box",
   "transmitter": {
     "name": "gnb",
-    "position": [-0.05, 0.0, 10.0]
+    "position": [-2.0, 0.0, 2.5]
   },
   "receiver": {
     "name": "ue",
-    "position": [0.05, 0.0, 10.0]
+    "position": [2.0, 0.0, 1.5]
   },
   "placement": {
     "mode": "configured",
-    "max_attempts": 1000,
-    "min_distance_m": 0.05,
-    "transmitter": {
-      "bounds": [[-3.0, -3.0, 8.0], [3.0, 3.0, 12.0]]
-    },
-    "receiver": {
-      "bounds": [[-3.0, -3.0, 8.0], [3.0, 3.0, 12.0]]
-    }
+    "min_distance_m": 0.05
   },
   "antenna": {
     "pattern": "iso",
@@ -30,11 +23,6 @@
     "synthetic_array": true,
     "los": true,
     "specular_reflection": true,
-    "diffuse_reflection": false,
-    "refraction": false,
-    "diffraction": false,
-    "edge_diffraction": false,
-    "diffraction_lit_region": true,
     "seed": 42
   },
   "conversion": {

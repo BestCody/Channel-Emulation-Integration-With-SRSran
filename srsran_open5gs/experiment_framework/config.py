@@ -10,11 +10,10 @@ from .settings import load_benchmark_parameters, parameter_sources, resolve_repo
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SOLVER_KEYS = {
-    "max_depth",
-    "max_num_paths_per_src",
-    "samples_per_src",
-    "synthetic_array",
+# Boolean ray-interaction effects. A condition turns on only the effects it
+# names; everything else resolves to False. Keep in sync with
+# channel_emulation/sionna_stationary.py:PROPAGATION_EFFECTS.
+PROPAGATION_EFFECTS = (
     "los",
     "specular_reflection",
     "diffuse_reflection",
@@ -22,8 +21,16 @@ SOLVER_KEYS = {
     "diffraction",
     "edge_diffraction",
     "diffraction_lit_region",
+)
+# Non-toggle solver tuning that the scene owns rather than the condition.
+SOLVER_TUNING_KEYS = {
+    "max_depth",
+    "max_num_paths_per_src",
+    "samples_per_src",
+    "synthetic_array",
     "seed",
 }
+SOLVER_KEYS = set(PROPAGATION_EFFECTS) | SOLVER_TUNING_KEYS
 MOBILITY = {"static", "moving"}
 
 
@@ -32,9 +39,16 @@ class ConfigError(ValueError):
 
 
 def apply_propagation(scene, propagation):
-    """Overlay propagation toggles onto a scene"""
+    """Overlay propagation toggles onto a scene.
+
+    Propagation effects are never inherited from the scene: every effect
+    starts disabled and the condition turns on only the ones it names, so an
+    effect the condition omits always resolves to False.
+    """
     merged = copy.deepcopy(scene)
     solver = dict(merged.get("solver", {}))
+    for effect in PROPAGATION_EFFECTS:
+        solver[effect] = False
     solver.update(propagation or {})
     merged["solver"] = solver
     return merged

@@ -8,10 +8,7 @@
   "scene": "channel_emulation/scenes/default_scene.json",
   "mobility": "static",
   "propagation": {
-    "los": true,
-    "specular_reflection": false,
-    "diffuse_reflection": false,
-    "diffraction": false
+    "los": true
   },
   "throughput": {
     "status": "deferred",

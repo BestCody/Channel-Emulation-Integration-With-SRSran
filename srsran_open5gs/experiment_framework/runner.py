@@ -210,8 +210,6 @@ class PilotRunner:
             offset = int(hashlib.sha256(material).hexdigest()[:8], 16)
             seed = base + offset
         arguments = ["--placement-mode", "random", "--placement-seed", str(seed)]
-        if scene.get("max_placement_attempts") is not None:
-            arguments += ["--placement-max-attempts", str(int(scene["max_placement_attempts"]))]
         if scene.get("min_link_distance_m") is not None:
             arguments += ["--placement-min-distance", str(float(scene["min_link_distance_m"]))]
         return arguments

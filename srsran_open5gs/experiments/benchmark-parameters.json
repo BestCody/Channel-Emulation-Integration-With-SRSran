@@ -72,7 +72,6 @@
     "preflight_enabled": false
   },
   "scene": {
-    "max_placement_attempts": 1000,
     "min_link_distance_m": 0.05,
     "placement_seed": 42,
     "randomize_positions": true

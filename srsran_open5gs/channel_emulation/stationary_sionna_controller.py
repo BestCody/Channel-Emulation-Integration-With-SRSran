@@ -153,7 +153,6 @@ def parse_args():
     parser.add_argument("--output", required=True)
     parser.add_argument("--placement-mode", choices=["configured", "random"])
     parser.add_argument("--placement-seed", type=int)
-    parser.add_argument("--placement-max-attempts", type=int)
     parser.add_argument("--placement-min-distance", type=float)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--endpoint", default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"))
@@ -172,7 +171,6 @@ def main():
             args.scene_config,
             placement_mode=args.placement_mode,
             placement_seed=args.placement_seed,
-            max_attempts=args.placement_max_attempts,
             min_distance_m=args.placement_min_distance,
         )
         report = calculate_stationary_channel(

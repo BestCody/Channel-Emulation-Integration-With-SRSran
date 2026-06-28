@@ -9,9 +9,7 @@
   "mobility": "static",
   "propagation": {
     "los": true,
-    "specular_reflection": true,
-    "diffuse_reflection": false,
-    "diffraction": false
+    "specular_reflection": true
   },
   "throughput": {
     "status": "deferred",

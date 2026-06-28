@@ -14,6 +14,28 @@ EXPECTED_SIONNA_VERSION = "2.0.1"
 EXPECTED_SIONNA_RT_VERSION = "2.0.1"
 EXPECTED_VARIANT = "cuda_ad_mono_polarized"
 
+# Boolean ray-interaction effects. Every effect defaults to disabled; a scene
+# or condition turns on only the ones it names and anything omitted resolves to
+# False (see _solver_options). Keep in sync with
+# experiment_framework/config.py:PROPAGATION_EFFECTS.
+PROPAGATION_EFFECTS = (
+    "los",
+    "specular_reflection",
+    "diffuse_reflection",
+    "refraction",
+    "diffraction",
+    "edge_diffraction",
+    "diffraction_lit_region",
+)
+
+
+def _solver_options(solver):
+    """Resolve solver toggles, defaulting every propagation effect to False."""
+    options = dict(solver or {})
+    for effect in PROPAGATION_EFFECTS:
+        options.setdefault(effect, False)
+    return options
+
 
 def _validate_scene_config(config):
     required = {
@@ -29,40 +51,43 @@ def _validate_scene_config(config):
         raise ValueError(f"scene config is missing {sorted(missing)}")
 
 
-def _bounds(spec, name):
-    bounds = spec.get("bounds")
-    if (
-        not isinstance(bounds, list)
-        or len(bounds) != 2
-        or any(not isinstance(point, list) or len(point) != 3 for point in bounds)
-    ):
-        raise ValueError(f"{name} placement requires bounds [[x,y,z],[x,y,z]]")
-    lower = [float(value) for value in bounds[0]]
-    upper = [float(value) for value in bounds[1]]
-    if any(not math.isfinite(value) for value in lower + upper):
-        raise ValueError(f"{name} placement bounds must be finite")
-    if any(lo > hi for lo, hi in zip(lower, upper)):
-        raise ValueError(f"{name} placement lower bound exceeds upper bound")
-    return lower, upper
-
-
-def _random_point(spec, name, rng):
-    lower, upper = _bounds(spec, name)
-    return [
-        rng.uniform(lo, hi)
-        for lo, hi in zip(lower, upper)
-    ]
-
-
 def _distance(first, second):
     return math.sqrt(sum((float(a) - float(b)) ** 2 for a, b in zip(first, second)))
 
 
+def scene_bounding_box(scene_name):
+    """Return the physical (min, max) corners of a bundled Sionna scene.
+
+    The bounds come straight from the rendered geometry so randomized
+    placements can never fall outside the scene the channel is solved in.
+    """
+    import mitsuba as mi  # noqa: F401  (importing sionna.rt selects the variant)
+    from sionna.rt import load_scene
+    from sionna.rt import scene as rt_scene
+
+    scene_path = getattr(rt_scene, scene_name, None)
+    if not isinstance(scene_path, str):
+        raise ValueError(f"unknown bundled scene: {scene_name}")
+    scene = load_scene(scene_path)
+    bbox = scene.mi_scene.bbox()
+    scene_min = bbox.min
+    scene_max = bbox.max
+    lower = [float(scene_min.x), float(scene_min.y), float(scene_min.z)]
+    upper = [float(scene_max.x), float(scene_max.y), float(scene_max.z)]
+    if any(not math.isfinite(value) for value in lower + upper):
+        raise ValueError(f"scene {scene_name} has a non-finite bounding box")
+    return lower, upper
+
+
+def _random_point(lower, upper, rng):
+    return [rng.uniform(lo, hi) for lo, hi in zip(lower, upper)]
+
+
 def _apply_random_placement(
     config,
+    bounds,
     *,
     placement_seed=None,
-    max_attempts=None,
     min_distance_m=None,
 ):
     placement = config.get("placement", {})
@@ -70,47 +95,37 @@ def _apply_random_placement(
         raise ValueError("placement must be an object")
     seed = placement_seed if placement_seed is not None else placement.get("seed")
     rng = random.Random(seed)
-    tx_spec = placement.get("transmitter", {})
-    rx_spec = placement.get("receiver", {})
-    max_attempts = int(
-        max_attempts if max_attempts is not None else placement.get("max_attempts", 1000)
-    )
+    lower, upper = bounds
     min_distance = float(
         min_distance_m if min_distance_m is not None else placement.get("min_distance_m", 0.0)
     )
-    if max_attempts < 1:
-        raise ValueError("placement max_attempts must be positive")
     if min_distance < 0.0 or not math.isfinite(min_distance):
         raise ValueError("placement min_distance_m must be finite and non-negative")
+    if min_distance > _distance(lower, upper):
+        raise ValueError(
+            "placement min_distance_m exceeds the scene bounding box; "
+            "transmitter and receiver cannot be separated that far"
+        )
     original = {
         "transmitter": copy.deepcopy(config["transmitter"].get("position")),
         "receiver": copy.deepcopy(config["receiver"].get("position")),
     }
-    for attempt in range(1, max_attempts + 1):
-        transmitter = (
-            _random_point(tx_spec, "transmitter", rng)
-            if tx_spec.get("bounds") is not None
-            else list(config["transmitter"]["position"])
-        )
-        receiver = (
-            _random_point(rx_spec, "receiver", rng)
-            if rx_spec.get("bounds") is not None
-            else list(config["receiver"]["position"])
-        )
-        if _distance(transmitter, receiver) >= min_distance:
-            config["transmitter"]["position"] = transmitter
-            config["receiver"]["position"] = receiver
-            config["resolved_placement"] = {
-                "mode": "random",
-                "seed": seed,
-                "attempt": attempt,
-                "original": original,
-                "transmitter": transmitter,
-                "receiver": receiver,
-                "min_distance_m": min_distance,
-            }
-            return config
-    raise ValueError("could not sample transmitter and receiver positions that satisfy min_distance_m")
+    transmitter = _random_point(lower, upper, rng)
+    receiver = _random_point(lower, upper, rng)
+    while _distance(transmitter, receiver) < min_distance:
+        receiver = _random_point(lower, upper, rng)
+    config["transmitter"]["position"] = transmitter
+    config["receiver"]["position"] = receiver
+    config["resolved_placement"] = {
+        "mode": "random",
+        "seed": seed,
+        "scene_bounds": {"min": lower, "max": upper},
+        "original": original,
+        "transmitter": transmitter,
+        "receiver": receiver,
+        "min_distance_m": min_distance,
+    }
+    return config
 
 
 def load_scene_config(
@@ -118,8 +133,8 @@ def load_scene_config(
     *,
     placement_mode=None,
     placement_seed=None,
-    max_attempts=None,
     min_distance_m=None,
+    scene_bounds=None,
 ):
     config = json.loads(
         pathlib.Path(path).read_text(encoding="utf-8")
@@ -136,10 +151,11 @@ def load_scene_config(
         }
         return config
     if mode == "random":
+        bounds = scene_bounds or scene_bounding_box(config["scene"])
         return _apply_random_placement(
             config,
+            bounds,
             placement_seed=placement_seed,
-            max_attempts=max_attempts,
             min_distance_m=min_distance_m,
         )
     raise ValueError(f"unsupported placement mode: {mode}")
@@ -234,7 +250,7 @@ def calculate_stationary_channel(
     scene_ms = (time.perf_counter_ns() - scene_started) / 1_000_000
 
     solver = PathSolver()
-    solver_options = dict(config["solver"])
+    solver_options = _solver_options(config["solver"])
     solve_ms = []
     paths = None
     for _ in range(int(repeats)):

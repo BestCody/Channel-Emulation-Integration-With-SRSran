@@ -4,6 +4,7 @@ import time
 from sionna_stationary import EXPECTED_SIONNA_RT_VERSION
 from sionna_stationary import EXPECTED_SIONNA_VERSION
 from sionna_stationary import EXPECTED_VARIANT
+from sionna_stationary import _solver_options
 from sionna_taps import convert_paths
 from trajectory import SPEED_OF_LIGHT
 
@@ -53,6 +54,7 @@ class MovingSionnaScene:
         self.carrier_hz = float(carrier_hz)
         self.sample_rate = float(sample_rate)
         self.config = config
+        self.solver_options = _solver_options(config["solver"])
         started = time.monotonic_ns()
         self.scene = load_scene(scene_path)
         self.scene.frequency = self.carrier_hz
@@ -98,7 +100,7 @@ class MovingSionnaScene:
         position_end_ns = time.monotonic_ns()
 
         solve_start_ns = position_end_ns
-        paths = self.solver(self.scene, **dict(self.config["solver"]))
+        paths = self.solver(self.scene, **self.solver_options)
         self.dr.sync_thread()
         solve_end_ns = time.monotonic_ns()
 
