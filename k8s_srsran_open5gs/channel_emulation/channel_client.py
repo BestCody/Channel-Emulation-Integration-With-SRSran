@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import pathlib
 import sys
 import time
@@ -14,7 +15,8 @@ from channel_protocol import encode_message  # noqa: E402
 
 
 class ChannelClient:
-    def __init__(self, endpoint="tcp://127.0.0.1:5555", timeout_ms=5000):
+    def __init__(self, endpoint=None, timeout_ms=5000):
+        endpoint = endpoint or os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555")
         import zmq
 
         self.zmq = zmq

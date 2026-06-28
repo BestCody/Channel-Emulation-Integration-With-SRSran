@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import json
 import math
 import pathlib
@@ -196,7 +197,7 @@ def parser():
     result = argparse.ArgumentParser()
     result.add_argument(
         "--endpoint",
-        default="tcp://127.0.0.1:5555",
+        default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"),
     )
     commands = result.add_subparsers(dest="command", required=True)
 

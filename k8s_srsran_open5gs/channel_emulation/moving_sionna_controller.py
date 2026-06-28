@@ -1,4 +1,5 @@
 import argparse
+import os
 import hashlib
 import json
 import math
@@ -25,6 +26,7 @@ from sionna_taps import taps_from_report  # noqa: E402
 from trajectory import activation_sample  # noqa: E402
 from trajectory import load_trajectory  # noqa: E402
 from trajectory import radio_motion_metrics  # noqa: E402
+from trajectory import translate_trajectory  # noqa: E402
 
 
 NO_PENDING_SEQUENCE = (1 << 64) - 1
@@ -239,8 +241,7 @@ def run_live(args, radio, trajectory, config):
         if float(config_response["sample_rate"]) != radio.sample_rate:
             raise ValueError("live sample rate does not match")
 
-        # The starting-position channel is calculated, scheduled, and fully
-        # confirmed before the movement epoch exists.
+        # start-position channel confirmed before the epoch
         start_result = scene.solve(trajectory.points[0])
         before = client.get_status()
         start_sequence = int(before["last_accepted_sequence"]) + 1
@@ -277,8 +278,7 @@ def run_live(args, radio, trajectory, config):
         records.append(start_record)
         completed.append(0)
 
-        # Only now is the movement epoch established. Position 1 is the first
-        # movement update and all later targets remain fixed even if skipped.
+        # movement epoch starts here; targets stay fixed
         epoch_created_ns = time.monotonic_ns()
         epoch_status = client.get_status()
         first_movement_sample = max(
@@ -345,8 +345,7 @@ def run_live(args, radio, trajectory, config):
                 except Exception as error:
                     reason = f"schedule failed: {error}"
 
-            # Calculate the next channel while GNU Radio uses the current
-            # active channel and, when scheduled, holds this update pending.
+            # precompute next channel while this one runs
             next_result = None
             if index + 1 < len(trajectory.points):
                 try:
@@ -461,7 +460,11 @@ def parse_args():
     parser.add_argument("--output", required=True)
     parser.add_argument("--dry-run-report")
     parser.add_argument("--expected-dry-run-sha256")
-    parser.add_argument("--endpoint", default="tcp://127.0.0.1:5555")
+    parser.add_argument("--placement-mode", choices=["configured", "random"])
+    parser.add_argument("--placement-seed", type=int)
+    parser.add_argument("--placement-max-attempts", type=int)
+    parser.add_argument("--placement-min-distance", type=float)
+    parser.add_argument("--endpoint", default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"))
     parser.add_argument("--movement-lead-ms", type=float, default=250.0)
     parser.add_argument("--late-margin-ms", type=float, default=10.0)
     parser.add_argument("--final-hold-seconds", type=float, default=5.0)
@@ -475,7 +478,25 @@ def main():
     args = parse_args()
     radio = load_radio_config(args.gnb_config, args.ue_config)
     trajectory = load_trajectory(args.trajectory)
-    config = load_scene_config(args.scene_config)
+    config = load_scene_config(
+        args.scene_config,
+        placement_mode=args.placement_mode,
+        placement_seed=args.placement_seed,
+        max_attempts=args.placement_max_attempts,
+        min_distance_m=args.placement_min_distance,
+    )
+    resolved = config.get("resolved_placement") or {}
+    if resolved.get("mode") == "random":
+        # random mode shifts trajectory to sampled start
+        start = config["receiver"]["position"]
+        offset = tuple(
+            float(start_coord) - float(point_coord)
+            for start_coord, point_coord in zip(start, trajectory.points[0].position)
+        )
+        trajectory = translate_trajectory(trajectory, offset)
+        config["receiver"]["position"] = list(trajectory.points[0].position)
+        config["resolved_placement"]["receiver"] = list(trajectory.points[0].position)
+        config["resolved_placement"]["trajectory_offset"] = list(offset)
     if tuple(config["receiver"]["position"]) != trajectory.points[0].position:
         raise ValueError("scene receiver must match trajectory position 0")
     if args.dry_run:

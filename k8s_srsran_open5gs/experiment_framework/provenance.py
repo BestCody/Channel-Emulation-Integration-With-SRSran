@@ -9,21 +9,29 @@ from .config import source_record
 from .results import atomic_write_text, write_json
 
 
-VERSION_COMMANDS = {
-    "git": ["git", "--version"],
-    "kubectl": ["kubectl", "version", "-o", "json"],
-    "docker": ["docker", "--version"],
-    "containerd": ["sudo", "ctr", "version"],
-    "nvidia_smi": ["nvidia-smi", "--query-gpu=name,uuid,driver_version,memory.total", "--format=csv"],
-    "kernel": ["uname", "-a"],
-    "sionna_environment": [
-        "/home/h3lou/miniforge3/envs/sionna2/bin/python",
-        "-c",
-        "import json,numpy,sionna,sionna.rt,torch; "
-        "print(json.dumps({'sionna':sionna.__version__,'sionna_rt':sionna.rt.__version__,"
-        "'torch':torch.__version__,'cuda':torch.version.cuda,'numpy':numpy.__version__},sort_keys=True))",
-    ],
-}
+def version_commands(parameters):
+    monitoring = parameters.get("monitoring", {}) if parameters else {}
+    commands = {
+        "git": ["git", "--version"],
+        "kubectl": ["kubectl", "version", "-o", "json"],
+        "docker": ["docker", "--version"],
+        "containerd": ["sudo", "ctr", "version"],
+        "kernel": ["uname", "-a"],
+        "sionna_environment": [
+            (parameters or {}).get("host_python", "python3"),
+            "-c",
+            "import json,numpy,sionna,sionna.rt,torch; "
+            "print(json.dumps({'sionna':sionna.__version__,'sionna_rt':sionna.rt.__version__,"
+            "'torch':torch.__version__,'cuda':torch.version.cuda,'numpy':numpy.__version__},sort_keys=True))",
+        ],
+    }
+    if monitoring.get("enable_gpu", True):
+        commands["nvidia_smi"] = [
+            monitoring.get("nvidia_smi", "nvidia-smi"),
+            "--query-gpu=name,uuid,driver_version,memory.total",
+            "--format=csv",
+        ]
+    return commands
 
 
 def run_capture(command, cwd=None):
@@ -42,11 +50,15 @@ def run_capture(command, cwd=None):
         return {"command": command, "return_code": None, "output": str(error)}
 
 
-def collect_provenance(output_dir, repo_root, resolved_study):
+def collect_provenance(output_dir, repo_root, resolved_study, parameters=None):
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     repo_root = pathlib.Path(repo_root)
-    versions = {name: run_capture(command, repo_root) for name, command in VERSION_COMMANDS.items()}
+    parameters = parameters or resolved_study.get("parameters", {})
+    versions = {
+        name: run_capture(command, repo_root)
+        for name, command in version_commands(parameters).items()
+    }
     versions["python"] = {
         "version": platform.python_version(),
         "implementation": platform.python_implementation(),
@@ -58,6 +70,8 @@ def collect_provenance(output_dir, repo_root, resolved_study):
     atomic_write_text(output_dir / "git-head.txt", run_capture(["git", "rev-parse", "HEAD"], repo_root)["output"])
     atomic_write_text(output_dir / "tracked-diff.patch", run_capture(["git", "diff", "--binary"], repo_root)["output"])
     artifacts = {}
+    for record in resolved_study.get("parameter_configurations", []):
+        artifacts[record["absolute_path"]] = record
     for condition in resolved_study["conditions"]:
         for record in condition["input_artifacts"]:
             artifacts[record["absolute_path"]] = record
@@ -69,10 +83,14 @@ def collect_provenance(output_dir, repo_root, resolved_study):
         repo_root / "configs/ues/srsue-sparse",
         repo_root / "configs/ues/srsue-live",
         repo_root / "configs/ues/srsue-noise",
+        repo_root / "configs/srsRAN",
         repo_root / "containers",
         repo_root / "gr-sionna-channel",
     ]
-    source_files = [repo_root / "bin/stage8-experiment.py"]
+    source_files = [
+        repo_root / "bin/stage8-experiment.py",
+        repo_root / "bin/baseline.sh",
+    ]
     for root in source_roots:
         source_files.extend(
             path for path in root.rglob("*")

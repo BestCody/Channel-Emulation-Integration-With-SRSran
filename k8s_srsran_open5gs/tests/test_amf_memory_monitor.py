@@ -10,6 +10,14 @@ from amf_memory_monitor import MIB  # noqa: E402
 from amf_memory_monitor import evaluate_sample  # noqa: E402
 
 
+THRESHOLDS = dict(
+    stop_growth_bytes=128 * MIB,
+    warn_growth_bytes=64 * MIB,
+    stop_limit_fraction=0.90,
+    warn_limit_fraction=0.75,
+)
+
+
 def sample(memory, restart=1, uid="uid", container="container"):
     return {
         "memory_current": memory,
@@ -25,6 +33,7 @@ class AmfMemoryMonitorTests(unittest.TestCase):
         reasons, warnings = evaluate_sample(
             sample(30 * MIB),
             sample(20 * MIB),
+            **THRESHOLDS,
         )
         self.assertEqual(reasons, [])
         self.assertEqual(warnings, [])
@@ -33,6 +42,7 @@ class AmfMemoryMonitorTests(unittest.TestCase):
         reasons, _warnings = evaluate_sample(
             sample(20 * MIB, restart=2),
             sample(20 * MIB, restart=1),
+            **THRESHOLDS,
         )
         self.assertIn("AMF restart count changed", reasons)
 
@@ -40,14 +50,19 @@ class AmfMemoryMonitorTests(unittest.TestCase):
         _reasons, warnings = evaluate_sample(
             sample(85 * MIB),
             sample(20 * MIB),
+            **THRESHOLDS,
         )
-        self.assertIn("AMF memory grew by at least 64 MiB", warnings)
+        self.assertIn(
+            f"AMF memory grew by at least {THRESHOLDS['warn_growth_bytes']} bytes",
+            warnings,
+        )
         reasons, _warnings = evaluate_sample(
             sample(150 * MIB),
             sample(20 * MIB),
+            **THRESHOLDS,
         )
         self.assertIn(
-            "AMF memory grew by at least 128 MiB",
+            f"AMF memory grew by at least {THRESHOLDS['stop_growth_bytes']} bytes",
             reasons,
         )
 
@@ -55,6 +70,7 @@ class AmfMemoryMonitorTests(unittest.TestCase):
         reasons, _warnings = evaluate_sample(
             sample(int(512 * MIB * 0.91)),
             sample(20 * MIB),
+            **THRESHOLDS,
         )
         self.assertIn("AMF memory reached 90% of its limit", reasons)
 

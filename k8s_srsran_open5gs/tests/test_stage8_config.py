@@ -13,6 +13,7 @@ from experiment_framework.modes import study_plan  # noqa: E402
 
 
 PILOT = REPO_ROOT / "experiments/studies/stage8-pilot.json"
+EXPECTED_RESULT_ROOT = str(REPO_ROOT.parent / "results" / "stage8")
 
 
 class Stage8ConfigTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class Stage8ConfigTests(unittest.TestCase):
         self.assertEqual(resolved["conditions"][0]["condition_id"], "baseline")
         self.assertEqual(
             resolved["result_root"],
-            "/home/h3lou/sionna-srsran/results/stage8",
+            EXPECTED_RESULT_ROOT,
         )
 
     def test_corrected_baseline_and_amf_policy_is_enforced(self):
@@ -64,12 +65,27 @@ class Stage8ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "study.json"
             path.write_text(json.dumps(study))
-            with self.assertRaisesRegex(ConfigError, "result_root"):
+            with self.assertRaisesRegex(ConfigError, "outside the Git repository"):
                 load_and_resolve_study(path)
 
-    def test_pilot_trial_count_above_one_is_rejected(self):
+    def test_pilot_single_trial_enforcement_is_parameterized(self):
         study = json.loads(PILOT.read_text())
         study["trials_per_condition"] = 2
+        study["conditions"] = [
+            str((PILOT.parent / reference).resolve())
+            for reference in study["conditions"]
+        ]
+        # enforced pilots reject more than one trial
+        study["parameters"] = {"study": {"enforce_pilot_single_trial": True}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "study.json"
+            path.write_text(json.dumps(study))
+            with self.assertRaisesRegex(ConfigError, "pilot trial count"):
+                load_and_resolve_study(path)
+
+    def test_multi_trial_study_is_allowed_when_enforcement_is_off(self):
+        study = json.loads(PILOT.read_text())
+        study["trials_per_condition"] = 5
         study["conditions"] = [
             str((PILOT.parent / reference).resolve())
             for reference in study["conditions"]
@@ -77,8 +93,8 @@ class Stage8ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "study.json"
             path.write_text(json.dumps(study))
-            with self.assertRaisesRegex(ConfigError, "one trial"):
-                load_and_resolve_study(path)
+            resolved = load_and_resolve_study(path)
+            self.assertEqual(resolved["trials_per_condition"], 5)
 
     def test_plan_has_no_per_trial_complete_baseline(self):
         resolved = load_and_resolve_study(PILOT)

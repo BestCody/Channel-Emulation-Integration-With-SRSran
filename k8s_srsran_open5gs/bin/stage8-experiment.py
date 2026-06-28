@@ -22,14 +22,17 @@ def parser():
 
     resolve = commands.add_parser("resolve", help="validate and resolve a study without running it")
     resolve.add_argument("study")
+    resolve.add_argument("--parameters", action="append", default=[])
     resolve.add_argument("--output", required=True)
 
     plan = commands.add_parser("plan", help="print the resolved execution plan without running it")
     plan.add_argument("study")
+    plan.add_argument("--parameters", action="append", default=[])
 
-    run = commands.add_parser("run", help="run the guarded pilot study")
+    run = commands.add_parser("run", help="run the configured benchmark study")
     run.add_argument("study")
-    run.add_argument("--namespace", default="open5gs")
+    run.add_argument("--parameters", action="append", default=[])
+    run.add_argument("--namespace")
     run.add_argument(
         "--confirm-live",
         action="store_true",
@@ -48,7 +51,7 @@ def main():
         print(json.dumps(summary, indent=2, sort_keys=True))
         return
 
-    resolved = load_and_resolve_study(args.study)
+    resolved = load_and_resolve_study(args.study, parameter_files=getattr(args, "parameters", []))
     if args.command == "resolve":
         write_json(args.output, resolved)
         print(args.output)

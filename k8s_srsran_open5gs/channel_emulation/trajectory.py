@@ -91,6 +91,22 @@ def load_trajectory(path):
     return Trajectory(name, interval_ns, tuple(points))
 
 
+def translate_trajectory(trajectory, offset):
+    """Shift all positions by a fixed offset"""
+    offset = _vector(list(offset), "offset")
+    points = tuple(
+        TrajectoryPoint(
+            point.index,
+            point.time_ns,
+            tuple(coordinate + shift for coordinate, shift in zip(point.position, offset)),
+            point.velocity,
+            point.speed_mps,
+        )
+        for point in trajectory.points
+    )
+    return Trajectory(trajectory.name, trajectory.update_interval_ns, points)
+
+
 def radio_motion_metrics(carrier_hz, speed_mps, interval_ns):
     carrier_hz = float(carrier_hz)
     speed_mps = float(speed_mps)

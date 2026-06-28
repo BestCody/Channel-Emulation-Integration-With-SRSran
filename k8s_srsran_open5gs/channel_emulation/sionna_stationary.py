@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
+import copy
 import json
+import math
 import pathlib
+import random
 import time
 
 from sionna_taps import convert_paths
@@ -12,10 +15,7 @@ EXPECTED_SIONNA_RT_VERSION = "2.0.1"
 EXPECTED_VARIANT = "cuda_ad_mono_polarized"
 
 
-def load_scene_config(path):
-    config = json.loads(
-        pathlib.Path(path).read_text(encoding="utf-8")
-    )
+def _validate_scene_config(config):
     required = {
         "scene",
         "transmitter",
@@ -27,7 +27,122 @@ def load_scene_config(path):
     missing = required - set(config)
     if missing:
         raise ValueError(f"scene config is missing {sorted(missing)}")
-    return config
+
+
+def _bounds(spec, name):
+    bounds = spec.get("bounds")
+    if (
+        not isinstance(bounds, list)
+        or len(bounds) != 2
+        or any(not isinstance(point, list) or len(point) != 3 for point in bounds)
+    ):
+        raise ValueError(f"{name} placement requires bounds [[x,y,z],[x,y,z]]")
+    lower = [float(value) for value in bounds[0]]
+    upper = [float(value) for value in bounds[1]]
+    if any(not math.isfinite(value) for value in lower + upper):
+        raise ValueError(f"{name} placement bounds must be finite")
+    if any(lo > hi for lo, hi in zip(lower, upper)):
+        raise ValueError(f"{name} placement lower bound exceeds upper bound")
+    return lower, upper
+
+
+def _random_point(spec, name, rng):
+    lower, upper = _bounds(spec, name)
+    return [
+        rng.uniform(lo, hi)
+        for lo, hi in zip(lower, upper)
+    ]
+
+
+def _distance(first, second):
+    return math.sqrt(sum((float(a) - float(b)) ** 2 for a, b in zip(first, second)))
+
+
+def _apply_random_placement(
+    config,
+    *,
+    placement_seed=None,
+    max_attempts=None,
+    min_distance_m=None,
+):
+    placement = config.get("placement", {})
+    if not isinstance(placement, dict):
+        raise ValueError("placement must be an object")
+    seed = placement_seed if placement_seed is not None else placement.get("seed")
+    rng = random.Random(seed)
+    tx_spec = placement.get("transmitter", {})
+    rx_spec = placement.get("receiver", {})
+    max_attempts = int(
+        max_attempts if max_attempts is not None else placement.get("max_attempts", 1000)
+    )
+    min_distance = float(
+        min_distance_m if min_distance_m is not None else placement.get("min_distance_m", 0.0)
+    )
+    if max_attempts < 1:
+        raise ValueError("placement max_attempts must be positive")
+    if min_distance < 0.0 or not math.isfinite(min_distance):
+        raise ValueError("placement min_distance_m must be finite and non-negative")
+    original = {
+        "transmitter": copy.deepcopy(config["transmitter"].get("position")),
+        "receiver": copy.deepcopy(config["receiver"].get("position")),
+    }
+    for attempt in range(1, max_attempts + 1):
+        transmitter = (
+            _random_point(tx_spec, "transmitter", rng)
+            if tx_spec.get("bounds") is not None
+            else list(config["transmitter"]["position"])
+        )
+        receiver = (
+            _random_point(rx_spec, "receiver", rng)
+            if rx_spec.get("bounds") is not None
+            else list(config["receiver"]["position"])
+        )
+        if _distance(transmitter, receiver) >= min_distance:
+            config["transmitter"]["position"] = transmitter
+            config["receiver"]["position"] = receiver
+            config["resolved_placement"] = {
+                "mode": "random",
+                "seed": seed,
+                "attempt": attempt,
+                "original": original,
+                "transmitter": transmitter,
+                "receiver": receiver,
+                "min_distance_m": min_distance,
+            }
+            return config
+    raise ValueError("could not sample transmitter and receiver positions that satisfy min_distance_m")
+
+
+def load_scene_config(
+    path,
+    *,
+    placement_mode=None,
+    placement_seed=None,
+    max_attempts=None,
+    min_distance_m=None,
+):
+    config = json.loads(
+        pathlib.Path(path).read_text(encoding="utf-8")
+    )
+    _validate_scene_config(config)
+    config = copy.deepcopy(config)
+    placement = config.get("placement", {})
+    mode = placement_mode or placement.get("mode", "configured")
+    if mode == "configured":
+        config["resolved_placement"] = {
+            "mode": "configured",
+            "transmitter": config["transmitter"].get("position"),
+            "receiver": config["receiver"].get("position"),
+        }
+        return config
+    if mode == "random":
+        return _apply_random_placement(
+            config,
+            placement_seed=placement_seed,
+            max_attempts=max_attempts,
+            min_distance_m=min_distance_m,
+        )
+    raise ValueError(f"unsupported placement mode: {mode}")
 
 
 def _point(mi, values):
@@ -173,6 +288,7 @@ def calculate_stationary_channel(
         "sample_rate": float(sample_rate),
         "transmitter": config["transmitter"],
         "receiver": config["receiver"],
+        "placement": config.get("resolved_placement"),
         "antenna": config["antenna"],
         "solver": solver_options,
         "timing_ms": {

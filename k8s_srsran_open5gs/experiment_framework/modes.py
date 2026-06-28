@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 
-def condition_plan(condition):
+def condition_plan(condition, parameters=None):
+    parameters = parameters or {}
+    port_forward = parameters.get("channel", {}).get("port_forward", "configured control port")
     mode = condition["mode"]
     common = [
         "apply separate overlay",
@@ -27,14 +29,14 @@ def condition_plan(condition):
         ]
     if mode == "stationary_sionna":
         return common + [
-            "start kubectl port-forward on 5555",
+            f"start kubectl port-forward on {port_forward}",
             "run and validate stationary Sionna dry calculation",
             "send absolute taps and record ACK and activation timing",
             "record ping while the channel remains active",
         ]
     if mode == "controlled_noise":
         return common + [
-            "start kubectl port-forward on 5555",
+            f"start kubectl port-forward on {port_forward}",
             "apply validated stationary Sionna channel",
             "calibrate signal power during active traffic",
             "freeze amplitudes for 30,25,20,15,10,5,0 dB",
@@ -43,7 +45,7 @@ def condition_plan(condition):
         ]
     if mode == "moving_sionna":
         return common + [
-            "start kubectl port-forward on 5555",
+            f"start kubectl port-forward on {port_forward}",
             "run and validate complete moving-channel dry run",
             "activate position zero before establishing movement epoch",
             "run positions 1-20 at fixed 50 ms targets without restarts",
@@ -62,7 +64,7 @@ def study_plan(resolved_study):
         actions.append({
             "condition_id": condition["condition_id"],
             "trial_count": resolved_study["trials_per_condition"],
-            "actions": condition_plan(condition),
+            "actions": condition_plan(condition, resolved_study.get("parameters")),
             "after_success": "restore deployment and validate only; do not reconnect radio",
             "after_failure": "restore, run immediate complete baseline check, then stop study",
         })

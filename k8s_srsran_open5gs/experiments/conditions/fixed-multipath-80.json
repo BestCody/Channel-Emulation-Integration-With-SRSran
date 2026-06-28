@@ -1,15 +1,15 @@
 {
-  "schema_version": 1,
   "condition_id": "fixed-multipath-80",
-  "label": "Verified fixed multipath, 80 percent profile",
-  "mode": "fixed_multipath",
-  "measurement_profile": "../measurement-profiles/standard.json",
-  "overlay": "configs/ues/srsue-fixed",
-  "launcher": "/srsran/config/start_gnu_multipath.sh 1 /srsran/config/fixed_three_path.json",
-  "tap_profile": "configs/ues/srsue-fixed/config/fixed_three_path.json",
   "known_stress_profile_excluded": "configs/ues/srsue-fixed/config/fixed_three_path_stress.json",
+  "label": "Verified fixed multipath, 80 percent profile",
+  "launcher": "/srsran/config/start_gnu_multipath.sh {ue_number} /srsran/config/fixed_three_path.json",
+  "measurement_profile": "../measurement-profiles/standard.json",
+  "mode": "fixed_multipath",
+  "overlay": "configs/ues/srsue-fixed",
+  "schema_version": 1,
+  "tap_profile": "configs/ues/srsue-fixed/config/fixed_three_path.json",
   "throughput": {
-    "status": "deferred",
-    "reason": "No verified user-plane throughput endpoint exists"
+    "reason": "No verified user-plane throughput endpoint exists",
+    "status": "deferred"
   }
 }

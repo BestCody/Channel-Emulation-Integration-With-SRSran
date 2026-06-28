@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import shlex
 import signal
 import subprocess
 import tempfile
@@ -13,10 +14,6 @@ from dataclasses import asdict, dataclass
 
 from .results import atomic_write_text, write_json
 from .traffic import parse_ping
-
-
-UE_SELECTOR = "app=srsran,component=ue,name=ue1"
-GNB_SELECTOR = "app=srsran,component=gnb"
 
 
 class CommandFailure(RuntimeError):
@@ -132,11 +129,14 @@ class OriginalUEState:
 
 
 class AMFMonitor:
-    def __init__(self, repo_root, namespace, output_dir, interval):
+    def __init__(self, repo_root, namespace, output_dir, interval, host_python, parameters):
         self.repo_root = pathlib.Path(repo_root)
         self.namespace = namespace
         self.output_dir = pathlib.Path(output_dir)
         self.interval = float(interval)
+        self.host_python = host_python
+        self.parameters = parameters
+        self.selector = parameters.get("kubernetes", {}).get("amf_selector")
         self.process = None
         self.stopping = False
 
@@ -151,13 +151,24 @@ class AMFMonitor:
     def start(self):
         self.output_dir.mkdir(parents=True, exist_ok=True)
         command = [
-            "/home/h3lou/miniforge3/envs/sionna2/bin/python",
+            self.host_python,
             str(self.repo_root / "channel_emulation/amf_memory_monitor.py"),
             "--namespace", self.namespace,
             "--interval", str(self.interval),
             "--output", str(self.samples_path),
             "--summary", str(self.summary_path),
         ]
+        if self.selector:
+            command.extend(["--selector", self.selector])
+        safety = self.parameters.get("amf_safety", {})
+        if "stop_at_growth_bytes" in safety:
+            command.extend(["--stop-growth-bytes", str(safety["stop_at_growth_bytes"])])
+        if "warn_at_growth_bytes" in safety:
+            command.extend(["--warn-growth-bytes", str(safety["warn_at_growth_bytes"])])
+        if "stop_at_limit_fraction" in safety:
+            command.extend(["--stop-limit-fraction", str(safety["stop_at_limit_fraction"])])
+        if "warn_at_limit_fraction" in safety:
+            command.extend(["--warn-limit-fraction", str(safety["warn_at_limit_fraction"])])
         log = (self.output_dir / "amf-monitor.log").open("w", encoding="utf-8")
         self.process = subprocess.Popen(
             command,
@@ -260,16 +271,18 @@ class ResourceMonitor:
     def start(self):
         monitoring = self.trial_dir / "condition/monitoring"
         monitoring.mkdir(parents=True, exist_ok=True)
-        self.gpu = BackgroundCommand(
-            [
-                "nvidia-smi",
-                "--query-gpu=timestamp,index,uuid,utilization.gpu,utilization.memory,memory.used,power.draw,temperature.gpu",
-                "--format=csv",
-                "-lms", "100",
-            ],
-            self.lifecycle.repo_root,
-            monitoring / "gpu.csv",
-        )
+        monitor_config = self.lifecycle.parameters.get("monitoring", {})
+        if monitor_config.get("enable_gpu", True):
+            self.gpu = BackgroundCommand(
+                [
+                    monitor_config.get("nvidia_smi", "nvidia-smi"),
+                    "--query-gpu=timestamp,index,uuid,utilization.gpu,utilization.memory,memory.used,power.draw,temperature.gpu",
+                    "--format=csv",
+                    "-lms", str(monitor_config.get("gpu_query_interval_ms", 100)),
+                ],
+                self.lifecycle.repo_root,
+                monitoring / "gpu.csv",
+            )
         self.thread = threading.Thread(target=self._run, name="stage8-resource-monitor", daemon=True)
         self.thread.start()
 
@@ -312,13 +325,37 @@ class ResourceMonitor:
 
 
 class KubernetesLifecycle:
-    def __init__(self, repo_root, namespace, executor):
+    def __init__(self, repo_root, namespace, executor, parameters):
         self.repo_root = pathlib.Path(repo_root)
         self.namespace = namespace
         self.executor = executor
+        self.parameters = parameters
+        self.kubernetes = parameters.get("kubernetes", {})
+        self.radio = parameters.get("radio", {})
+        self.logs = parameters.get("logs", {})
+        self.timeouts = parameters.get("timeouts", {})
         self.original = None
         self.ue_pod = None
         self.gnb_pod = None
+        self.ue_selector = self.kubernetes.get("ue_selector")
+        self.gnb_selector = self.kubernetes.get("gnb_selector")
+        self.ue_deployment = self.kubernetes.get("ue_deployment")
+        self.ue_container = self.kubernetes.get("ue_container", "ue")
+        self.gnb_container = self.kubernetes.get("gnb_container", "gnb")
+        self.ue_config_volume = self.kubernetes.get("ue_config_volume", "ue-volume")
+        self.baseline_overlay = self.kubernetes.get("baseline_overlay", "configs/ues/srsue")
+        self.baseline_script = self.kubernetes.get("baseline_script", "bin/baseline.sh")
+        self.ue_number = int(self.radio.get("ue_number", 1))
+        self.ue_netns = self.radio.get("ue_netns", f"ue{self.ue_number}")
+        self.gateway = self.radio.get("gateway")
+        self.tun_interface = self.radio.get("tun_interface", "tun_srsue")
+        self.flowgraph_pattern = self.radio.get("flowgraph_process_pattern")
+        self.ue_process_pattern = self.radio.get("ue_process_pattern")
+        self.gnb_process_pattern = self.radio.get("gnb_process_pattern")
+
+    @staticmethod
+    def shell_quote(value):
+        return shlex.quote(str(value))
 
     def kubectl(self, *arguments):
         return ["kubectl", *arguments]
@@ -329,7 +366,7 @@ class KubernetesLifecycle:
     def discover_ue(self):
         return self.capture(
             "get", "pods", "-n", self.namespace,
-            "-l", UE_SELECTOR,
+            "-l", self.ue_selector,
             "--field-selector=status.phase=Running",
             "-o", "jsonpath={.items[0].metadata.name}",
         )
@@ -337,7 +374,7 @@ class KubernetesLifecycle:
     def discover_gnb(self):
         return self.capture(
             "get", "pods", "-n", self.namespace,
-            "-l", GNB_SELECTOR,
+            "-l", self.gnb_selector,
             "--field-selector=status.phase=Running",
             "-o", "jsonpath={.items[0].metadata.name}",
         )
@@ -346,70 +383,72 @@ class KubernetesLifecycle:
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         self.executor.run(
-            self.kubectl("get", "deployment", "srsran-ue1", "-n", self.namespace, "-o", "yaml"),
+            self.kubectl("get", "deployment", self.ue_deployment, "-n", self.namespace, "-o", "yaml"),
             output_dir / "original-deployment.yaml",
         )
         def value(expression):
-            return self.capture("get", "deployment", "srsran-ue1", "-n", self.namespace, "-o", f"jsonpath={expression}")
+            return self.capture("get", "deployment", self.ue_deployment, "-n", self.namespace, "-o", f"jsonpath={expression}")
         self.original = OriginalUEState(
             replicas=int(value("{.spec.replicas}")),
-            configmap=value('{.spec.template.spec.volumes[?(@.name=="ue-volume")].configMap.name}'),
-            image=value('{.spec.template.spec.containers[?(@.name=="ue")].image}'),
-            pull_policy=value('{.spec.template.spec.containers[?(@.name=="ue")].imagePullPolicy}'),
+            configmap=value(f'{{.spec.template.spec.volumes[?(@.name=="{self.ue_config_volume}")].configMap.name}}'),
+            image=value(f'{{.spec.template.spec.containers[?(@.name=="{self.ue_container}")].image}}'),
+            pull_policy=value(f'{{.spec.template.spec.containers[?(@.name=="{self.ue_container}")].imagePullPolicy}}'),
         )
         write_json(output_dir / "original-state.json", asdict(self.original))
         return self.original
 
     def ue_capture(self, script, check=True):
         self.ue_pod = self.ue_pod or self.discover_ue()
-        return self.capture("exec", "-n", self.namespace, self.ue_pod, "-c", "ue", "--", "bash", "-lc", script, check=check)
+        return self.capture("exec", "-n", self.namespace, self.ue_pod, "-c", self.ue_container, "--", "bash", "-lc", script, check=check)
 
     def gnb_capture(self, script, check=True):
         self.gnb_pod = self.gnb_pod or self.discover_gnb()
-        return self.capture("exec", "-n", self.namespace, self.gnb_pod, "-c", "gnb", "--", "bash", "-lc", script, check=check)
+        return self.capture("exec", "-n", self.namespace, self.gnb_pod, "-c", self.gnb_container, "--", "bash", "-lc", script, check=check)
 
     def stop_radio(self):
         self.ue_pod = self.capture(
-            "get", "pods", "-n", self.namespace, "-l", UE_SELECTOR,
+            "get", "pods", "-n", self.namespace, "-l", self.ue_selector,
             "--field-selector=status.phase=Running",
             "-o", "jsonpath={.items[0].metadata.name}",
             check=False,
         )
         self.gnb_pod = self.capture(
-            "get", "pods", "-n", self.namespace, "-l", GNB_SELECTOR,
+            "get", "pods", "-n", self.namespace, "-l", self.gnb_selector,
             "--field-selector=status.phase=Running",
             "-o", "jsonpath={.items[0].metadata.name}",
             check=False,
         )
+        stop_sleep = float(self.timeouts.get("radio_stop_sleep_seconds", 2.0))
         if self.ue_pod:
             self.capture(
-                "exec", "-n", self.namespace, self.ue_pod, "-c", "ue", "--",
+                "exec", "-n", self.namespace, self.ue_pod, "-c", self.ue_container, "--",
                 "bash", "-lc",
-                "pkill -TERM -f '[p]ing .*10.41.0.1' 2>/dev/null || true; "
-                "pkill -INT -f '[/]opt/srsRAN_4G/build/srsue/src/srsue' 2>/dev/null || true",
+                f"pkill -TERM -f '[p]ing .*{self.shell_quote(self.gateway)}' 2>/dev/null || true; "
+                f"pkill -INT -f {self.shell_quote(self.ue_process_pattern)} 2>/dev/null || true",
                 check=False,
             )
-        time.sleep(2)
+        time.sleep(stop_sleep)
         if self.gnb_pod:
             self.capture(
-                "exec", "-n", self.namespace, self.gnb_pod, "-c", "gnb", "--",
-                "bash", "-lc", "pkill -INT -f '[/]srsran/gnb' 2>/dev/null || true",
+                "exec", "-n", self.namespace, self.gnb_pod, "-c", self.gnb_container, "--",
+                "bash", "-lc", f"pkill -INT -f {self.shell_quote(self.gnb_process_pattern)} 2>/dev/null || true",
                 check=False,
             )
-        time.sleep(2)
+        time.sleep(stop_sleep)
         if self.ue_pod:
             self.capture(
-                "exec", "-n", self.namespace, self.ue_pod, "-c", "ue", "--",
+                "exec", "-n", self.namespace, self.ue_pod, "-c", self.ue_container, "--",
                 "bash", "-lc",
-                "pkill -INT -f '[m]ulti_ue_.*channel.py|[m]ulti_ue_scenario.py' 2>/dev/null || true; "
+                f"pkill -INT -f {self.shell_quote(self.flowgraph_pattern)} 2>/dev/null || true; "
                 "pkill -TERM -f '[t]ail -f /dev/null' 2>/dev/null || true",
                 check=False,
             )
 
-    def wait_no_ue(self, timeout=180):
+    def wait_no_ue(self, timeout=None):
+        timeout = float(timeout or self.timeouts.get("ue_wait_gone_seconds", 180))
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            value = self.capture("get", "pods", "-n", self.namespace, "-l", UE_SELECTOR, "--no-headers", check=False)
+            value = self.capture("get", "pods", "-n", self.namespace, "-l", self.ue_selector, "--no-headers", check=False)
             if not value.strip():
                 return
             time.sleep(1)
@@ -421,7 +460,7 @@ class KubernetesLifecycle:
         output_dir = pathlib.Path(output_dir)
         self.stop_radio()
         self.executor.run(
-            self.kubectl("scale", "deployment/srsran-ue1", "-n", self.namespace, "--replicas=0"),
+            self.kubectl("scale", f"deployment/{self.ue_deployment}", "-n", self.namespace, "--replicas=0"),
             output_dir / "scale-zero.log",
         )
         self.wait_no_ue()
@@ -430,22 +469,23 @@ class KubernetesLifecycle:
             output_dir / "apply.log",
         )
         self.executor.run(
-            self.kubectl("scale", "deployment/srsran-ue1", "-n", self.namespace, f"--replicas={self.original.replicas}"),
+            self.kubectl("scale", f"deployment/{self.ue_deployment}", "-n", self.namespace, f"--replicas={self.original.replicas}"),
             output_dir / "scale.log",
         )
+        rollout = int(self.timeouts.get("rollout_seconds", 300))
         self.executor.run(
-            self.kubectl("rollout", "status", "deployment/srsran-ue1", "-n", self.namespace, "--timeout=300s"),
+            self.kubectl("rollout", "status", f"deployment/{self.ue_deployment}", "-n", self.namespace, f"--timeout={rollout}s"),
             output_dir / "rollout.log",
-            timeout=310,
+            timeout=rollout + 10,
         )
         self.executor.run(
-            self.kubectl("wait", "--for=condition=Ready", "pod", "-l", UE_SELECTOR, "-n", self.namespace, "--timeout=300s"),
+            self.kubectl("wait", "--for=condition=Ready", "pod", "-l", self.ue_selector, "-n", self.namespace, f"--timeout={rollout}s"),
             output_dir / "ready.log",
-            timeout=310,
+            timeout=rollout + 10,
         )
         self.ue_pod = self.discover_ue()
         self.gnb_pod = self.discover_gnb()
-        wrapper = self.ue_capture("pgrep -af '[m]ulti_ue|[/]opt/srsRAN_4G/build/srsue/src/srsue' || true")
+        wrapper = self.ue_capture(f"pgrep -af {self.shell_quote(self.flowgraph_pattern + '|' + self.ue_process_pattern)} || true")
         atomic_write_text(output_dir / "wrapper-process-check.txt", wrapper + ("\n" if wrapper else ""))
         if wrapper:
             raise CommandFailure("replacement UE pod started radio processes automatically")
@@ -453,27 +493,30 @@ class KubernetesLifecycle:
     def start_radio(self, condition, trial_dir):
         trial_dir = pathlib.Path(trial_dir)
         launcher = condition["launcher"]
-        self.ue_capture(f"nohup {launcher} >/tmp/stage8-gnuradio.log 2>&1 </dev/null &")
-        time.sleep(5)
-        flow = self.ue_capture("pgrep -f '[m]ulti_ue_.*channel.py' | head -n1")
+        gnuradio_log = self.shell_quote(self.logs["gnuradio"])
+        gnb_log = self.shell_quote(self.logs["gnb"])
+        ue_log = self.shell_quote(self.logs["ue"])
+        self.ue_capture(f"nohup {launcher} >{gnuradio_log} 2>&1 </dev/null &")
+        time.sleep(float(self.timeouts.get("radio_start_gnuradio_sleep_seconds", 5.0)))
+        flow = self.ue_capture(f"pgrep -f {self.shell_quote(self.flowgraph_pattern)} | head -n1")
         if not flow:
             raise CommandFailure("GNU Radio process did not remain running")
-        self.gnb_capture("nohup /srsran/config/start_gnb.sh >/tmp/stage8-gnb.log 2>&1 </dev/null &")
-        time.sleep(3)
-        self.ue_capture("nohup /srsran/config/start_ue.sh 1 >/tmp/stage8-ue.log 2>&1 </dev/null &")
+        self.gnb_capture(f"nohup {self.radio['start_gnb_script']} >{gnb_log} 2>&1 </dev/null &")
+        time.sleep(float(self.timeouts.get("radio_start_gnb_sleep_seconds", 3.0)))
+        self.ue_capture(f"nohup {self.radio['start_ue_script']} {self.ue_number} >{ue_log} 2>&1 </dev/null &")
         timeout = condition["measurement_profile_resolved"]["values"].get("attachment_timeout_seconds", 120)
+        phrase = self.shell_quote(self.radio.get("attachment_log_phrase", "PDU Session Establishment successful"))
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if self.ue_capture("grep -q 'PDU Session Establishment successful' /tmp/stage8-ue.log", check=False) == "":
-                if self.ue_capture("grep -q 'PDU Session Establishment successful' /tmp/stage8-ue.log; printf '%s' $?", check=False) == "0":
-                    break
-            if not self.ue_capture("pgrep -f '[/]opt/srsRAN_4G/build/srsue/src/srsue' || true"):
+            if self.ue_capture(f"grep -Fq {phrase} {ue_log}; printf '%s' $?", check=False) == "0":
+                break
+            if not self.ue_capture(f"pgrep -f {self.shell_quote(self.ue_process_pattern)} || true"):
                 raise CommandFailure("UE process exited before attachment")
             time.sleep(1)
         else:
             raise CommandFailure("UE attachment timed out")
-        self.ue_capture("ip netns exec ue1 ip route replace default via 10.41.0.1")
-        ue_ip = self.ue_capture("ip netns exec ue1 ip -4 -o addr show dev tun_srsue | awk '{print $4}'")
+        self.ue_capture(f"ip netns exec {self.shell_quote(self.ue_netns)} ip route replace default via {self.shell_quote(self.gateway)}")
+        ue_ip = self.ue_capture(f"ip netns exec {self.shell_quote(self.ue_netns)} ip -4 -o addr show dev {self.shell_quote(self.tun_interface)} | awk '{{print $4}}'")
         atomic_write_text(trial_dir / "condition/ue-ip.txt", ue_ip + "\n")
         return ue_ip
 
@@ -483,23 +526,41 @@ class KubernetesLifecycle:
         return {
             "ue_pod": self.ue_pod,
             "pod_uid": self.capture("get", "pod", self.ue_pod, "-n", self.namespace, "-o", "jsonpath={.metadata.uid}"),
-            "flowgraph_pid": self.ue_capture("pgrep -f '[m]ulti_ue_.*channel.py|[m]ulti_ue_scenario.py' | head -n1"),
-            "ue_pid": self.ue_capture("pgrep -f '[/]opt/srsRAN_4G/build/srsue/src/srsue' | head -n1"),
+            "flowgraph_pid": self.ue_capture(f"pgrep -f {self.shell_quote(self.flowgraph_pattern)} | head -n1"),
+            "ue_pid": self.ue_capture(f"pgrep -f {self.shell_quote(self.ue_process_pattern)} | head -n1"),
             "gnb_pod": self.gnb_pod,
-            "gnb_pid": self.gnb_capture("pgrep -f '[/]srsran/gnb' | head -n1"),
+            "gnb_pid": self.gnb_capture(f"pgrep -f {self.shell_quote(self.gnb_process_pattern)} | head -n1"),
         }
 
     def ping(self, output_path, *, count=100, interval=0.1, deadline=2):
-        output = self.ue_capture(f"ip netns exec ue1 ping -D -i {interval:g} -c {count} -W {deadline} 10.41.0.1", check=False)
+        output = self.ue_capture(
+            f"ip netns exec {self.shell_quote(self.ue_netns)} ping -D -i {float(interval):g} -c {int(count)} -W {deadline} {self.shell_quote(self.gateway)}",
+            check=False,
+        )
         atomic_write_text(output_path, output + "\n")
         return parse_ping(output)
+
+    def start_background_ping(self, log_path, *, interval, count=None, deadline=None):
+        command = f"nohup ip netns exec {self.shell_quote(self.ue_netns)} ping -D -i {float(interval):g}"
+        if count is not None:
+            command += f" -c {int(count)}"
+        if deadline is not None:
+            command += f" -W {deadline}"
+        command += f" {self.shell_quote(self.gateway)} >{self.shell_quote(log_path)} 2>&1 </dev/null &"
+        self.ue_capture(command)
+
+    def stop_background_ping(self, *, interval):
+        self.ue_capture(
+            f"pkill -TERM -f '[p]ing -D -i {float(interval):g} .*{self.shell_quote(self.gateway)}' 2>/dev/null || true",
+            check=False,
+        )
 
     def capture_logs(self, trial_dir):
         logs = pathlib.Path(trial_dir) / "condition/logs"
         logs.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(logs / "gnuradio.log", self.ue_capture("cat /tmp/stage8-gnuradio.log 2>/dev/null || true", check=False) + "\n")
-        atomic_write_text(logs / "ue.log", self.ue_capture("cat /tmp/stage8-ue.log 2>/dev/null || true", check=False) + "\n")
-        atomic_write_text(logs / "gnb.log", self.gnb_capture("cat /tmp/stage8-gnb.log 2>/dev/null || true", check=False) + "\n")
+        atomic_write_text(logs / "gnuradio.log", self.ue_capture(f"cat {self.shell_quote(self.logs['gnuradio'])} 2>/dev/null || true", check=False) + "\n")
+        atomic_write_text(logs / "ue.log", self.ue_capture(f"cat {self.shell_quote(self.logs['ue'])} 2>/dev/null || true", check=False) + "\n")
+        atomic_write_text(logs / "gnb.log", self.gnb_capture(f"cat {self.shell_quote(self.logs['gnb'])} 2>/dev/null || true", check=False) + "\n")
 
     def restore(self, output_dir):
         if self.original is None:
@@ -507,13 +568,14 @@ class KubernetesLifecycle:
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         self.stop_radio()
-        self.executor.run(self.kubectl("scale", "deployment/srsran-ue1", "-n", self.namespace, "--replicas=0"), output_dir / "scale-zero.log")
+        self.executor.run(self.kubectl("scale", f"deployment/{self.ue_deployment}", "-n", self.namespace, "--replicas=0"), output_dir / "scale-zero.log")
         self.wait_no_ue()
-        self.executor.run(self.kubectl("apply", "-k", str(self.repo_root / "configs/ues/srsue"), "-n", self.namespace), output_dir / "apply-baseline.log")
-        self.executor.run(self.kubectl("scale", "deployment/srsran-ue1", "-n", self.namespace, f"--replicas={self.original.replicas}"), output_dir / "scale-original.log")
+        self.executor.run(self.kubectl("apply", "-k", str(self.repo_root / self.baseline_overlay), "-n", self.namespace), output_dir / "apply-baseline.log")
+        self.executor.run(self.kubectl("scale", f"deployment/{self.ue_deployment}", "-n", self.namespace, f"--replicas={self.original.replicas}"), output_dir / "scale-original.log")
+        rollout = int(self.timeouts.get("rollout_seconds", 300))
         if self.original.replicas:
-            self.executor.run(self.kubectl("rollout", "status", "deployment/srsran-ue1", "-n", self.namespace, "--timeout=300s"), output_dir / "rollout.log", timeout=310)
-            self.executor.run(self.kubectl("wait", "--for=condition=Ready", "pod", "-l", UE_SELECTOR, "-n", self.namespace, "--timeout=300s"), output_dir / "ready.log", timeout=310)
+            self.executor.run(self.kubectl("rollout", "status", f"deployment/{self.ue_deployment}", "-n", self.namespace, f"--timeout={rollout}s"), output_dir / "rollout.log", timeout=rollout + 10)
+            self.executor.run(self.kubectl("wait", "--for=condition=Ready", "pod", "-l", self.ue_selector, "-n", self.namespace, f"--timeout={rollout}s"), output_dir / "ready.log", timeout=rollout + 10)
         restored = self.current_state()
         write_json(output_dir / "restored-state.json", asdict(restored))
         if restored != self.original:
@@ -523,41 +585,72 @@ class KubernetesLifecycle:
 
     def current_state(self):
         def value(expression):
-            return self.capture("get", "deployment", "srsran-ue1", "-n", self.namespace, "-o", f"jsonpath={expression}")
+            return self.capture("get", "deployment", self.ue_deployment, "-n", self.namespace, "-o", f"jsonpath={expression}")
         return OriginalUEState(
             replicas=int(value("{.spec.replicas}")),
-            configmap=value('{.spec.template.spec.volumes[?(@.name=="ue-volume")].configMap.name}'),
-            image=value('{.spec.template.spec.containers[?(@.name=="ue")].image}'),
-            pull_policy=value('{.spec.template.spec.containers[?(@.name=="ue")].imagePullPolicy}'),
+            configmap=value(f'{{.spec.template.spec.volumes[?(@.name=="{self.ue_config_volume}")].configMap.name}}'),
+            image=value(f'{{.spec.template.spec.containers[?(@.name=="{self.ue_container}")].image}}'),
+            pull_policy=value(f'{{.spec.template.spec.containers[?(@.name=="{self.ue_container}")].imagePullPolicy}}'),
         )
+
+    def baseline_environment(self):
+        env = os.environ.copy()
+        env.update({
+            "NAMESPACE": self.namespace,
+            "UE_NUMBER": str(self.ue_number),
+            "UE_SELECTOR": self.ue_selector,
+            "GNB_SELECTOR": self.gnb_selector,
+            "UE_CONTAINER": self.ue_container,
+            "GNB_CONTAINER": self.gnb_container,
+            "UE_NETNS": self.ue_netns,
+            "GATEWAY": self.gateway,
+            "TUN_INTERFACE": self.tun_interface,
+            "GNURADIO_LOG": self.logs["gnuradio"],
+            "GNB_LOG": self.logs["gnb"],
+            "UE_LOG": self.logs["ue"],
+            "START_GNU_SCRIPT": self.radio.get("start_gnu_script", "/srsran/config/start_gnu.sh"),
+            "START_GNB_SCRIPT": self.radio["start_gnb_script"],
+            "START_UE_SCRIPT": self.radio["start_ue_script"],
+            "ATTACHMENT_LOG_PHRASE": self.radio.get("attachment_log_phrase", "PDU Session Establishment successful"),
+            "FLOWGRAPH_PROCESS_PATTERN": self.flowgraph_pattern,
+            "UE_PROCESS_PATTERN": self.ue_process_pattern,
+            "GNB_PROCESS_PATTERN": self.gnb_process_pattern,
+        })
+        return env
+
+    def throughput_record(self):
+        throughput = self.parameters.get("throughput", {})
+        return {
+            "status": throughput.get("default_status", "deferred"),
+            "reason": throughput.get("default_reason", "No verified user-plane throughput endpoint exists"),
+        }
 
     def baseline_check(self, output_dir, *, ping_count=100, monitor_trial_dir=None):
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         monitor = None
+        env = self.baseline_environment()
+        script = str(self.repo_root / self.baseline_script)
         try:
-            self.executor.run([str(self.repo_root / "bin/baseline.sh"), "start"], output_dir / "start.log", timeout=180)
+            self.executor.run([script, "start"], output_dir / "start.log", timeout=float(self.timeouts.get("baseline_start_seconds", 180)), env=env)
             self.ue_pod = self.discover_ue()
             self.gnb_pod = self.discover_gnb()
-            ue_ip = self.ue_capture("ip netns exec ue1 ip -4 -o addr show dev tun_srsue | awk '{print $4}'")
+            ue_ip = self.ue_capture(f"ip netns exec {self.shell_quote(self.ue_netns)} ip -4 -o addr show dev {self.shell_quote(self.tun_interface)} | awk '{{print $4}}'")
             if monitor_trial_dir is not None:
-                monitor = ResourceMonitor(self, monitor_trial_dir, 1.0)
+                monitor = ResourceMonitor(self, monitor_trial_dir, self.parameters.get("monitoring", {}).get("process_interval_seconds", 1.0))
                 monitor.start()
             ping = self.ping(output_dir / "ping.txt", count=ping_count)
             if monitor is not None:
                 monitor.check()
-            self.executor.run([str(self.repo_root / "bin/baseline.sh"), "logs"], output_dir / "logs.txt", check=False)
+            self.executor.run([script, "logs"], output_dir / "logs.txt", check=False, env=env)
             return {
                 "status": "passed" if ping["packet_loss_percent"] == 0.0 else "failed",
                 "attachment_success": True,
                 "ue_ip": ue_ip,
                 "ping": ping,
-                "throughput": {
-                    "status": "deferred",
-                    "reason": "No verified user-plane throughput endpoint exists",
-                },
+                "throughput": self.throughput_record(),
             }
         finally:
             if monitor is not None:
                 monitor.stop()
-            self.executor.run([str(self.repo_root / "bin/baseline.sh"), "stop"], output_dir / "stop.log", check=False)
+            self.executor.run([script, "stop"], output_dir / "stop.log", check=False, env=env)

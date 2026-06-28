@@ -1,16 +1,16 @@
 {
-  "schema_version": 1,
-  "condition_id": "fixed-attenuation-6db",
-  "label": "Fixed attenuation, 6 dB",
-  "mode": "fixed_attenuation",
-  "measurement_profile": "../measurement-profiles/standard.json",
-  "overlay": "configs/ues/srsue-fixed",
-  "launcher": "/srsran/config/start_gnu_fixed_channel.sh 1 6",
   "attenuation_db": 6.0,
+  "condition_id": "fixed-attenuation-6db",
   "expected_amplitude": 0.5011872336272722,
   "interpretation": "Scaling and network-stability test without added noise; receiver compensation may preserve ping and reported signal quality",
+  "label": "Fixed attenuation, 6 dB",
+  "launcher": "/srsran/config/start_gnu_fixed_channel.sh {ue_number} 6",
+  "measurement_profile": "../measurement-profiles/standard.json",
+  "mode": "fixed_attenuation",
+  "overlay": "configs/ues/srsue-fixed",
+  "schema_version": 1,
   "throughput": {
-    "status": "deferred",
-    "reason": "No verified user-plane throughput endpoint exists"
+    "reason": "No verified user-plane throughput endpoint exists",
+    "status": "deferred"
   }
 }

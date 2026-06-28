@@ -25,9 +25,14 @@ class Stage8RunnerDesignTests(unittest.TestCase):
         self.assertNotIn('"NodePort"', source)
 
     def test_generated_result_root_is_outside_repository(self):
-        study = (REPO_ROOT / "experiments/studies/stage8-pilot.json").read_text()
-        self.assertIn('/home/h3lou/sionna-srsran/results/stage8', study)
-        self.assertNotIn(str(REPO_ROOT / "results"), study)
+        from experiment_framework.config import load_and_resolve_study
+
+        resolved = load_and_resolve_study(
+            REPO_ROOT / "experiments/studies/stage8-pilot.json"
+        )
+        result_root = pathlib.Path(resolved["result_root"]).resolve()
+        self.assertNotEqual(result_root, REPO_ROOT)
+        self.assertNotIn(REPO_ROOT, result_root.parents)
 
 
 if __name__ == "__main__":

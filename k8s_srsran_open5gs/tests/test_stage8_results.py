@@ -10,6 +10,10 @@ from experiment_framework.results import write_json  # noqa: E402
 from experiment_framework.summarize import summarize_run  # noqa: E402
 
 
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+EXTERNAL_RESULT_ROOT = str(REPO_ROOT.parent / "results" / "stage8")
+
+
 class Stage8ResultTests(unittest.TestCase):
     def test_result_tree_and_checksums(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -71,10 +75,10 @@ class Stage8ResultTests(unittest.TestCase):
 
     def test_expected_layout_uses_external_result_root(self):
         layout = expected_result_layout(
-            "/home/h3lou/sionna-srsran/results/stage8",
+            EXTERNAL_RESULT_ROOT,
             "stage8-pilot",
         )
-        self.assertTrue(all(item.startswith("/home/h3lou/sionna-srsran/results/stage8/") for item in layout))
+        self.assertTrue(all(item.startswith(EXTERNAL_RESULT_ROOT + "/") for item in layout))
         self.assertTrue(any(item.endswith("summary/channel-updates.csv") for item in layout))
 
 

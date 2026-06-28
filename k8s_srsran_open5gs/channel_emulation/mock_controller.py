@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import json
 import pathlib
 import sys
@@ -107,7 +108,7 @@ def parse_args():
     )
     parser.add_argument(
         "--endpoint",
-        default="tcp://127.0.0.1:5555",
+        default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"),
     )
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--interval", type=float, default=0.5)
@@ -116,11 +117,11 @@ def parse_args():
     parser.add_argument("--timeout-ms", type=int, default=5000)
     parser.add_argument(
         "--metrics",
-        default="/tmp/stage4-mock-controller.jsonl",
+        default=os.environ.get("MOCK_CONTROLLER_LOG", "/tmp/stage4-mock-controller.jsonl"),
     )
     parser.add_argument(
         "--invalid-metrics",
-        default="/tmp/stage4-invalid-updates.jsonl",
+        default=os.environ.get("MOCK_CONTROLLER_INVALID_LOG", "/tmp/stage4-invalid-updates.jsonl"),
     )
     return parser.parse_args()
 

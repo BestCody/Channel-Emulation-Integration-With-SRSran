@@ -20,22 +20,22 @@ def kubectl(*arguments):
     ).strip()
 
 
-def discover_amf(namespace):
+def discover_amf(namespace, selector):
     return kubectl(
         "get",
         "pods",
         "-n",
         namespace,
         "-l",
-        "app=open5gs,nf=amf",
+        selector,
         "--field-selector=status.phase=Running",
         "-o",
         "jsonpath={.items[0].metadata.name}",
     )
 
 
-def read_sample(namespace):
-    pod = discover_amf(namespace)
+def read_sample(namespace, selector):
+    pod = discover_amf(namespace, selector)
     metadata = json.loads(
         kubectl("get", "pod", pod, "-n", namespace, "-o", "json")
     )
@@ -63,7 +63,7 @@ def read_sample(namespace):
     }
 
 
-def evaluate_sample(sample, baseline):
+def evaluate_sample(sample, baseline, *, stop_growth_bytes, warn_growth_bytes, stop_limit_fraction, warn_limit_fraction):
     reasons = []
     warnings = []
     if sample["restart_count"] != baseline["restart_count"]:
@@ -75,16 +75,16 @@ def evaluate_sample(sample, baseline):
 
     growth = sample["memory_current"] - baseline["memory_current"]
     maximum = sample["memory_max"]
-    if growth >= 128 * MIB:
-        reasons.append("AMF memory grew by at least 128 MiB")
-    elif growth >= 64 * MIB:
-        warnings.append("AMF memory grew by at least 64 MiB")
+    if growth >= stop_growth_bytes:
+        reasons.append(f"AMF memory grew by at least {stop_growth_bytes} bytes")
+    elif growth >= warn_growth_bytes:
+        warnings.append(f"AMF memory grew by at least {warn_growth_bytes} bytes")
     if maximum:
         fraction = sample["memory_current"] / maximum
-        if fraction >= 0.90:
-            reasons.append("AMF memory reached 90% of its limit")
-        elif fraction >= 0.75:
-            warnings.append("AMF memory reached 75% of its limit")
+        if fraction >= stop_limit_fraction:
+            reasons.append(f"AMF memory reached {stop_limit_fraction:.0%} of its limit")
+        elif fraction >= warn_limit_fraction:
+            warnings.append(f"AMF memory reached {warn_limit_fraction:.0%} of its limit")
     return reasons, warnings
 
 
@@ -95,8 +95,13 @@ def append_json(path, value):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--namespace", default="open5gs")
+    parser.add_argument("--namespace", required=True)
+    parser.add_argument("--selector", required=True)
     parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument("--stop-growth-bytes", type=int, default=128 * MIB)
+    parser.add_argument("--warn-growth-bytes", type=int, default=64 * MIB)
+    parser.add_argument("--stop-limit-fraction", type=float, default=0.90)
+    parser.add_argument("--warn-limit-fraction", type=float, default=0.75)
     parser.add_argument("--output", required=True)
     parser.add_argument("--summary", required=True)
     args = parser.parse_args()
@@ -112,7 +117,7 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("", encoding="utf-8")
 
-    baseline = read_sample(args.namespace)
+    baseline = read_sample(args.namespace, args.selector)
     baseline["event"] = "baseline"
     append_json(output, baseline)
     failures = 0
@@ -124,9 +129,16 @@ def main():
     exit_code = 0
     while not stop.wait(args.interval):
         try:
-            sample = read_sample(args.namespace)
+            sample = read_sample(args.namespace, args.selector)
             failures = 0
-            reasons, warnings = evaluate_sample(sample, baseline)
+            reasons, warnings = evaluate_sample(
+                sample,
+                baseline,
+                stop_growth_bytes=args.stop_growth_bytes,
+                warn_growth_bytes=args.warn_growth_bytes,
+                stop_limit_fraction=args.stop_limit_fraction,
+                warn_limit_fraction=args.warn_limit_fraction,
+            )
             sample["warnings"] = warnings
             sample["stop_reasons"] = reasons
             append_json(output, sample)

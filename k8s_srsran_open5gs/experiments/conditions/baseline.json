@@ -1,13 +1,13 @@
 {
-  "schema_version": 1,
   "condition_id": "baseline",
   "label": "Working baseline",
-  "mode": "baseline",
   "measurement_profile": "../measurement-profiles/standard.json",
-  "reuse_pre_pilot_baseline": true,
+  "mode": "baseline",
   "overlay": "configs/ues/srsue",
+  "reuse_pre_pilot_baseline": true,
+  "schema_version": 1,
   "throughput": {
-    "status": "deferred",
-    "reason": "No verified user-plane throughput endpoint exists"
+    "reason": "No verified user-plane throughput endpoint exists",
+    "status": "deferred"
   }
 }

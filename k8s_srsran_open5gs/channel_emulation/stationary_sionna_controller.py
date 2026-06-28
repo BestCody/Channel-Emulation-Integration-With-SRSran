@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import hashlib
 import json
 import pathlib
@@ -150,8 +151,12 @@ def parse_args():
         default=str(REPO_ROOT / "configs/ues/srsue/config/ue0.conf"),
     )
     parser.add_argument("--output", required=True)
+    parser.add_argument("--placement-mode", choices=["configured", "random"])
+    parser.add_argument("--placement-seed", type=int)
+    parser.add_argument("--placement-max-attempts", type=int)
+    parser.add_argument("--placement-min-distance", type=float)
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--endpoint", default="tcp://127.0.0.1:5555")
+    parser.add_argument("--endpoint", default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"))
     parser.add_argument("--activation-lead-ms", type=float, default=100)
     parser.add_argument("--activation-timeout", type=float, default=8)
     parser.add_argument("--expected-report-sha256")
@@ -163,7 +168,13 @@ def main():
     radio = load_radio_config(args.gnb_config, args.ue_config)
 
     if args.dry_run:
-        config = load_scene_config(args.scene_config)
+        config = load_scene_config(
+            args.scene_config,
+            placement_mode=args.placement_mode,
+            placement_seed=args.placement_seed,
+            max_attempts=args.placement_max_attempts,
+            min_distance_m=args.placement_min_distance,
+        )
         report = calculate_stationary_channel(
             config,
             carrier_hz=radio.carrier_hz,
