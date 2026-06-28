@@ -1,0 +1,595 @@
+#!/usr/bin/env python3
+
+import hashlib
+import json
+import os
+import pathlib
+import re
+import signal
+import socket
+import time
+
+from .config import REPO_ROOT, apply_propagation, sha256_file
+from .failures import FailureRecord
+from .lifecycle import (
+    AMFMonitor,
+    BackgroundCommand,
+    CommandExecutor,
+    CommandFailure,
+    KubernetesLifecycle,
+    ResourceMonitor,
+    SafetyStop,
+)
+from .provenance import collect_provenance
+from .results import ResultStore, atomic_write_text, write_json
+from .summarize import summarize_run
+from .traffic import parse_ping
+
+
+class StudyLock:
+    def __init__(self, result_root):
+        self.path = pathlib.Path(result_root) / ".evaluation.lock"
+        self.descriptor = None
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.descriptor = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.write(self.descriptor, f"pid={os.getpid()}\n".encode())
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.descriptor is not None:
+            os.close(self.descriptor)
+        self.path.unlink(missing_ok=True)
+
+
+class PilotRunner:
+    def __init__(self, resolved_study, *, namespace=None):
+        self.study = resolved_study
+        self.parameters = resolved_study.get("parameters", {})
+        self.kubernetes = self.parameters.get("kubernetes", {})
+        self.channel = self.parameters.get("channel", {})
+        self.timeouts = self.parameters.get("timeouts", {})
+        self.namespace = namespace or self.kubernetes.get("namespace")
+        if not self.namespace:
+            raise ValueError("Kubernetes namespace is required")
+        self.host_python = self.parameters.get("host_python", "python3")
+        self.store = None
+        self.amf = None
+        self.resource_monitor = None
+        self.backgrounds = []
+        self.executor = CommandExecutor(cwd=REPO_ROOT, safety_check=self.check_safety)
+        self.lifecycle = KubernetesLifecycle(
+            REPO_ROOT,
+            self.namespace,
+            self.executor,
+            self.parameters,
+        )
+        self.deployment_changed = False
+        self.current_condition = None
+        self.current_trial = None
+        self._normal_shutdown = False
+
+    def check_safety(self):
+        if self.amf is not None:
+            self.amf.check()
+        if self.resource_monitor is not None:
+            self.resource_monitor.check()
+        for background in self.backgrounds:
+            background.check()
+
+    def checked_sleep(self, seconds):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self.check_safety()
+            time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+
+    def install_signal_handlers(self):
+        def interrupt(signum, frame):
+            raise InterruptedError(f"received signal {signum}")
+        signal.signal(signal.SIGTERM, interrupt)
+        signal.signal(signal.SIGINT, interrupt)
+
+    def preflight(self):
+        provenance = self.store.root / "provenance"
+        runtime = self.parameters.get("runtime_images", {})
+        if runtime.get("preflight_enabled"):
+            image_key = runtime.get("image_key")
+            image = (
+                self.study.get("runtime_images", {}).get(image_key)
+                or runtime.get("images", {}).get(image_key)
+            )
+            if not image:
+                raise CommandFailure("runtime image preflight is enabled but no image is configured")
+            archive = image["archive"]
+            actual = self.executor.capture(["sudo", "sha256sum", archive]).split()[0]
+            if actual != image["archive_sha256"]:
+                raise CommandFailure("runtime image archive checksum mismatch")
+            image_list = self.executor.capture(["sudo", "ctr", "-n", "k8s.io", "images", "list"])
+            if image["reference"] not in image_list:
+                self.executor.run(
+                    ["sudo", "ctr", "-n", "k8s.io", "images", "import", archive],
+                    provenance / "runtime-image-import.log",
+                    timeout=600,
+                )
+                image_list = self.executor.capture(["sudo", "ctr", "-n", "k8s.io", "images", "list"])
+            matching = [line for line in image_list.splitlines() if line.split() and line.split()[0] == image["reference"]]
+            if not matching or image["digest"] not in matching[0]:
+                raise CommandFailure("runtime image digest is not available in k8s.io")
+            atomic_write_text(provenance / "containerd-runtime-image.txt", matching[0] + "\n")
+        else:
+            atomic_write_text(provenance / "containerd-runtime-image.txt", "runtime image preflight disabled by benchmark parameters\n")
+
+        for condition in self.study["conditions"]:
+            overlay = condition.get("overlay")
+            if not overlay:
+                continue
+            rendered = self.executor.capture(["kubectl", "kustomize", str(REPO_ROOT / overlay)])
+            output = provenance / "rendered-overlays" / f"{condition['condition_id']}.yaml"
+            atomic_write_text(output, rendered + "\n")
+            if re.search(r"(?m)^\s*type:\s*NodePort\s*$", rendered):
+                raise CommandFailure(f"NodePort found in {condition['condition_id']} overlay")
+
+    def amf_slice(self, start_index):
+        samples = self.amf.samples()
+        selected = samples[start_index:]
+        if not selected:
+            selected = samples[-1:]
+        if not selected:
+            return {}
+        return {
+            "restart_count_before": selected[0]["restart_count"],
+            "restart_count_after": selected[-1]["restart_count"],
+            "memory_first_bytes": selected[0]["memory_current"],
+            "memory_last_bytes": selected[-1]["memory_current"],
+            "memory_max_observed": max(item["memory_current"] for item in selected),
+            "memory_limit_bytes": selected[-1]["memory_max"],
+            "pod_uids": sorted(set(item["pod_uid"] for item in selected)),
+            "sample_count": len(selected),
+        }
+
+    def start_port_forward(self, trial_dir):
+        self.lifecycle.ue_pod = self.lifecycle.discover_ue()
+        port_forward = self.channel.get("port_forward")
+        host = self.channel.get("port_forward_host", "127.0.0.1")
+        port = int(self.channel.get("port_forward_port", 5555))
+        background = BackgroundCommand(
+            ["kubectl", "port-forward", "-n", self.namespace, f"pod/{self.lifecycle.ue_pod}", port_forward],
+            REPO_ROOT,
+            pathlib.Path(trial_dir) / "condition/logs/port-forward.log",
+        )
+        self.backgrounds.append(background)
+        deadline = time.monotonic() + float(self.channel.get("port_forward_ready_seconds", 10))
+        while time.monotonic() < deadline:
+            background.check()
+            try:
+                with socket.create_connection((host, port), timeout=0.2):
+                    return background
+            except OSError:
+                time.sleep(0.2)
+        raise CommandFailure("port-forward did not become ready")
+
+    def stop_backgrounds(self):
+        for background in reversed(self.backgrounds):
+            try:
+                background.stop()
+            except Exception:
+                pass
+        self.backgrounds.clear()
+
+    def start_continuous_ping(self):
+        self.lifecycle.start_background_ping(
+            self.lifecycle.logs["continuous_ping"],
+            interval=float(self.channel.get("continuous_ping_interval_seconds", 0.05)),
+            deadline=None,
+            count=None,
+        )
+
+    def stop_continuous_ping(self, trial_dir):
+        self.lifecycle.stop_background_ping(
+            interval=float(self.channel.get("continuous_ping_interval_seconds", 0.05)),
+        )
+        self.checked_sleep(1)
+        output = self.lifecycle.ue_capture(f"cat {self.lifecycle.shell_quote(self.lifecycle.logs['continuous_ping'])} 2>/dev/null || true", check=False)
+        path = pathlib.Path(trial_dir) / "condition/traffic/continuous-ping.txt"
+        atomic_write_text(path, output + "\n")
+        return parse_ping(output) if output.strip() else None
+
+    def run_host(self, command, output_log, timeout=300):
+        self.executor.run(command, output_log, timeout=timeout)
+
+    def _placement_args(self, condition, trial_number):
+        scene = self.parameters.get("scene", {})
+        if not scene.get("randomize_positions", False):
+            return []
+        if condition.get("placement_seed") is not None:
+            seed = int(condition["placement_seed"])
+        else:
+            base = int(scene.get("placement_seed", 0))
+            material = f"{self.study['study_id']}:{condition['condition_id']}:{trial_number}".encode()
+            offset = int(hashlib.sha256(material).hexdigest()[:8], 16)
+            seed = base + offset
+        arguments = ["--placement-mode", "random", "--placement-seed", str(seed)]
+        if scene.get("max_placement_attempts") is not None:
+            arguments += ["--placement-max-attempts", str(int(scene["max_placement_attempts"]))]
+        if scene.get("min_link_distance_m") is not None:
+            arguments += ["--placement-min-distance", str(float(scene["min_link_distance_m"]))]
+        return arguments
+
+    def throughput_record(self):
+        throughput = self.parameters.get("throughput", {})
+        return {
+            "status": throughput.get("default_status", "deferred"),
+            "reason": throughput.get("default_reason", "No verified user-plane throughput endpoint exists"),
+        }
+
+    def stationary_channel(self, condition, trial_dir, trial_number, scene_path):
+        channel_dir = pathlib.Path(trial_dir) / "condition/channel"
+        dry = channel_dir / "stationary-dry-run.json"
+        self.run_host(
+            [
+                self.host_python,
+                str(REPO_ROOT / "channel_emulation/stationary_sionna_controller.py"),
+                "--dry-run",
+                "--scene-config", scene_path,
+                "--output", str(dry),
+                "--repeats", str(self.channel.get("stationary_repeats", 3)),
+                *self._placement_args(condition, trial_number),
+            ],
+            channel_dir / "stationary-dry-run.log",
+            timeout=float(self.channel.get("stationary_dry_timeout_seconds", 300)),
+        )
+        digest = sha256_file(dry)
+        atomic_write_text(channel_dir / "stationary-dry-run.sha256", f"{digest}  {dry.name}\n")
+        live = channel_dir / "stationary-live-result.json"
+        self.run_host(
+            [
+                self.host_python,
+                str(REPO_ROOT / "channel_emulation/stationary_sionna_controller.py"),
+                "--send-report", str(dry),
+                "--expected-report-sha256", digest,
+                "--endpoint", self.channel["control_endpoint"],
+                "--activation-lead-ms", str(self.channel.get("activation_lead_ms", 100.0)),
+                "--activation-timeout", str(self.channel.get("activation_timeout_seconds", 8.0)),
+                "--output", str(live),
+            ],
+            channel_dir / "stationary-live.log",
+            timeout=float(self.channel.get("stationary_live_timeout_seconds", 60)),
+        )
+        return {
+            "dry_report": str(dry),
+            "dry_report_sha256": digest,
+            "dry": json.loads(dry.read_text(encoding="utf-8")),
+            "live": json.loads(live.read_text(encoding="utf-8")),
+        }
+
+    def _resolve_scene(self, condition, trial_dir):
+        channel_dir = pathlib.Path(trial_dir) / "condition/channel"
+        source = pathlib.Path(condition["scene_resolved"]["absolute_path"])
+        merged = apply_propagation(json.loads(source.read_text(encoding="utf-8")), condition.get("propagation"))
+        resolved = channel_dir / "resolved-scene.json"
+        write_json(resolved, merged)
+        return str(resolved)
+
+    def run_static(self, condition, trial_dir, trial_number, scene_path):
+        self.start_port_forward(trial_dir)
+        self.start_continuous_ping()
+        channel = self.stationary_channel(condition, trial_dir, trial_number, scene_path)
+        self.checked_sleep(float(self.channel.get("continuous_ping_start_sleep_seconds", 10.0)))
+        continuous = self.stop_continuous_ping(trial_dir)
+        final = condition["measurement_profile_resolved"]["values"]["final_ping"]
+        ping = self.lifecycle.ping(
+            pathlib.Path(trial_dir) / "condition/traffic/final-ping.txt",
+            count=final["count"],
+            deadline=final["deadline_seconds"],
+        )
+        return {"channel": channel, "continuous_ping": continuous, "ping": ping}
+
+    def run_moving(self, condition, trial_dir, trial_number, scene_path):
+        self.start_port_forward(trial_dir)
+        channel_dir = pathlib.Path(trial_dir) / "condition/channel"
+        dry = channel_dir / "moving-dry-run.json"
+        self.run_host(
+            [
+                self.host_python,
+                str(REPO_ROOT / "channel_emulation/moving_sionna_controller.py"),
+                "--dry-run",
+                "--trajectory", condition["trajectory_resolved"]["absolute_path"],
+                "--scene-config", scene_path,
+                "--output", str(dry),
+                *self._placement_args(condition, trial_number),
+            ],
+            channel_dir / "moving-dry-run.log",
+            timeout=float(self.channel.get("moving_dry_timeout_seconds", 300)),
+        )
+        digest = sha256_file(dry)
+        self.start_continuous_ping()
+        live = channel_dir / "moving-live-result.json"
+        self.run_host(
+            [
+                self.host_python,
+                str(REPO_ROOT / "channel_emulation/moving_sionna_controller.py"),
+                "--live",
+                "--trajectory", condition["trajectory_resolved"]["absolute_path"],
+                "--scene-config", scene_path,
+                "--dry-run-report", str(dry),
+                "--expected-dry-run-sha256", digest,
+                "--endpoint", self.channel["control_endpoint"],
+                "--movement-lead-ms", str(self.channel.get("movement_lead_ms", 250.0)),
+                "--late-margin-ms", str(self.channel.get("late_margin_ms", 10.0)),
+                "--final-hold-seconds", str(self.channel.get("final_hold_seconds", 5.0)),
+                "--output", str(live),
+                *self._placement_args(condition, trial_number),
+            ],
+            channel_dir / "moving-live.log",
+            timeout=float(self.channel.get("moving_live_timeout_seconds", 300)),
+        )
+        continuous = self.stop_continuous_ping(trial_dir)
+        final = condition["measurement_profile_resolved"]["values"]["final_ping"]
+        ping = self.lifecycle.ping(
+            pathlib.Path(trial_dir) / "condition/traffic/final-ping.txt",
+            count=final["count"],
+            deadline=final["deadline_seconds"],
+        )
+        return {
+            "dry_report_sha256": digest,
+            "dry": json.loads(dry.read_text(encoding="utf-8")),
+            "live": json.loads(live.read_text(encoding="utf-8")),
+            "continuous_ping": continuous,
+            "ping": ping,
+        }
+
+    def noise_command(self, arguments, output, log, timeout=None):
+        self.run_host(
+            [
+                self.host_python,
+                str(REPO_ROOT / "channel_emulation/noise_sweep_controller.py"),
+                "--endpoint", self.channel["control_endpoint"],
+                *arguments,
+                "--output", str(output),
+            ],
+            log,
+            timeout=timeout or float(self.channel.get("noise_command_timeout_seconds", 120)),
+        )
+        return json.loads(pathlib.Path(output).read_text(encoding="utf-8"))
+
+    def run_noise(self, condition, trial_dir, trial_number, scene_path):
+        self.start_port_forward(trial_dir)
+        channel = self.stationary_channel(condition, trial_dir, trial_number, scene_path)
+        channel_dir = pathlib.Path(trial_dir) / "condition/channel"
+        traffic_dir = pathlib.Path(trial_dir) / "condition/traffic"
+        profile = json.loads(pathlib.Path(condition["noise_profile_resolved"]["absolute_path"]).read_text(encoding="utf-8"))
+        self.lifecycle.start_background_ping(
+            self.lifecycle.logs["calibration_ping"],
+            interval=float(self.channel.get("noise_calibration_ping_interval_seconds", 0.02)),
+            count=int(self.channel.get("noise_calibration_ping_count", 400)),
+            deadline=None,
+        )
+        calibration = self.noise_command(
+            [
+                "calibrate",
+                "--duration", str(self.channel.get("noise_calibration_duration_seconds", 5.0)),
+                "--interval", str(self.channel.get("noise_calibration_interval_seconds", 0.05)),
+            ],
+            channel_dir / "signal-calibration.json",
+            channel_dir / "signal-calibration.log",
+        )
+        levels_text = ",".join(str(value) for value in profile["levels_db"])
+        plan = channel_dir / "frozen-noise-plan.json"
+        self.run_host(
+            [
+                self.host_python,
+                str(REPO_ROOT / "channel_emulation/noise_sweep_controller.py"),
+                "plan",
+                "--signal-calibration", str(channel_dir / "signal-calibration.json"),
+                "--noise-calibration", condition["noise_calibration_resolved"]["absolute_path"],
+                "--levels", levels_text,
+                "--output", str(plan),
+            ],
+            channel_dir / "noise-plan.log",
+        )
+        level_results = []
+        first_failure = None
+        try:
+            for level in profile["levels_db"]:
+                apply_result = self.noise_command(
+                    ["apply", "--plan", str(plan), "--snr-db", str(level)],
+                    channel_dir / f"level-{level}-apply.json",
+                    channel_dir / f"level-{level}-apply.log",
+                )
+                self.checked_sleep(profile["settle_seconds"])
+                measurement = self.noise_command(
+                    [
+                        "measure",
+                        "--duration", str(self.channel.get("noise_measurement_duration_seconds", 2.0)),
+                        "--interval", str(self.channel.get("noise_measurement_interval_seconds", 0.05)),
+                    ],
+                    channel_dir / f"level-{level}-measurement.json",
+                    channel_dir / f"level-{level}-measurement.log",
+                )
+                ping = self.lifecycle.ping(
+                    traffic_dir / f"level-{level}-ping.txt",
+                    count=profile["measurement_ping_count"],
+                    interval=profile["measurement_ping_interval_seconds"],
+                    deadline=1,
+                )
+                sustained = False
+                confirmation = None
+                if ping["packet_loss_percent"] == 100.0:
+                    confirmation = self.lifecycle.ping(
+                        traffic_dir / f"level-{level}-confirmation-ping.txt",
+                        count=profile["attachment_loss_confirmation_ping_count"],
+                        interval=profile["attachment_loss_confirmation_ping_interval_seconds"],
+                        deadline=1,
+                    )
+                    sustained = confirmation["packet_loss_percent"] == 100.0
+                level_results.append({
+                    "target_snr_db": level,
+                    "apply": apply_result,
+                    "measurement": measurement,
+                    "ping": ping,
+                    "confirmation_ping": confirmation,
+                    "sustained_attachment_loss": sustained,
+                })
+                if sustained:
+                    first_failure = level
+                    break
+        finally:
+            self.noise_command(
+                ["off"],
+                channel_dir / "noise-off.json",
+                channel_dir / "noise-off.log",
+            )
+        return {
+            "channel": channel,
+            "signal_calibration": calibration,
+            "noise_plan": json.loads(plan.read_text(encoding="utf-8")),
+            "levels": level_results,
+            "first_failing_level": first_failure,
+            "ping": level_results[-1]["ping"] if level_results else None,
+            "throughput": self.throughput_record(),
+        }
+
+    def run_channel(self, condition, trial_dir, trial_number):
+        scene_path = self._resolve_scene(condition, trial_dir)
+        if (condition.get("noise") or {}).get("enabled"):
+            return self.run_noise(condition, trial_dir, trial_number, scene_path)
+        if condition.get("mobility") == "moving":
+            return self.run_moving(condition, trial_dir, trial_number, scene_path)
+        return self.run_static(condition, trial_dir, trial_number, scene_path)
+
+    def connection_failure_count(self, trial_dir):
+        patterns = re.compile(r"error|failed|underflow|overflow|underrun|overrun|timeout|dropped", re.I)
+        total = 0
+        for path in (pathlib.Path(trial_dir) / "condition/logs").glob("*.log"):
+            total += sum(bool(patterns.search(line)) for line in path.read_text(encoding="utf-8", errors="replace").splitlines())
+        return total
+
+    def trial_summary(self, condition, trial_number, ue_ip, result, amf_start):
+        ping = result.get("ping") or result.get("continuous_ping")
+        return {
+            "condition_id": condition["condition_id"],
+            "trial_number": trial_number,
+            "status": "passed",
+            "attachment_success": True,
+            "ue_ip": ue_ip,
+            "ping": ping,
+            "connection_failures": 0,
+            "amf": self.amf_slice(amf_start),
+            "throughput": self.throughput_record(),
+        }
+
+    def run_condition(self, condition, trial_number):
+        trial_dir = self.store.trial(condition["condition_id"], trial_number)
+        self.current_condition = condition["condition_id"]
+        self.current_trial = trial_number
+        write_json(trial_dir / "resolved-condition.json", condition)
+        amf_start = len(self.amf.samples())
+        failure = None
+        try:
+            self.deployment_changed = True
+            self.lifecycle.apply_overlay(condition["overlay"], trial_dir / "condition/deployment")
+            ue_ip = self.lifecycle.start_radio(condition, trial_dir)
+            interval = condition["measurement_profile_resolved"]["values"].get(
+                "resource_interval_seconds",
+                self.parameters.get("monitoring", {}).get("process_interval_seconds", 1.0),
+            )
+            self.resource_monitor = ResourceMonitor(self.lifecycle, trial_dir, interval)
+            self.resource_monitor.start()
+            result = self.run_channel(condition, trial_dir, trial_number)
+            self.resource_monitor.check()
+            write_json(trial_dir / "condition/result.json", result)
+            self.lifecycle.capture_logs(trial_dir)
+            summary = self.trial_summary(condition, trial_number, ue_ip, result, amf_start)
+            summary["connection_failures"] = self.connection_failure_count(trial_dir)
+            write_json(trial_dir / "summary.json", summary)
+        except BaseException as error:
+            failure = error
+            record = FailureRecord(
+                category="amf_safety" if isinstance(error, SafetyStop) else "unexpected",
+                message=str(error),
+                condition_id=condition["condition_id"],
+                trial_number=trial_number,
+                command=getattr(error, "command", None),
+                return_code=getattr(error, "return_code", None),
+            )
+            write_json(trial_dir / "failure.json", record.to_dict())
+        finally:
+            if self.resource_monitor is not None:
+                try:
+                    self.resource_monitor.stop()
+                finally:
+                    self.resource_monitor = None
+            self.stop_backgrounds()
+            try:
+                self.lifecycle.capture_logs(trial_dir)
+            except Exception:
+                pass
+            try:
+                with self.executor.without_safety_checks():
+                    self.lifecycle.restore(trial_dir / "restoration")
+                self.deployment_changed = False
+            except BaseException as restore_error:
+                write_json(
+                    trial_dir / "restoration/failure.json",
+                    FailureRecord(
+                        category="restoration",
+                        message=str(restore_error),
+                        condition_id=condition["condition_id"],
+                        trial_number=trial_number,
+                    ).to_dict(),
+                )
+                raise
+        if failure is not None:
+            recovery = self.store.root / "failure-recovery" / f"{condition['condition_id']}-trial-{trial_number:03d}"
+            if isinstance(failure, SafetyStop):
+                write_json(recovery / "summary.json", {
+                    "status": "not-run-amf-safety-stop",
+                    "reason": "The study stopped and restored immediately; starting another radio test at an AMF safety threshold would violate the stop condition",
+                })
+            else:
+                recovery_result = self.lifecycle.baseline_check(recovery, ping_count=20)
+                write_json(recovery / "summary.json", recovery_result)
+            raise failure
+
+    def run(self):
+        self.install_signal_handlers()
+        with StudyLock(self.study["result_root"]):
+            self.store = ResultStore(self.study["result_root"], self.study["study_id"])
+            self.store.write_json("resolved-study.json", self.study)
+            collect_provenance(self.store.root / "provenance", REPO_ROOT, self.study, self.parameters)
+            self.lifecycle.save_original(self.store.root / "provenance/original-cluster-state")
+            self.preflight()
+            interval = min(
+                condition["measurement_profile_resolved"]["values"].get("amf_interval_seconds", 0.5)
+                for condition in self.study["conditions"]
+            )
+            self.amf = AMFMonitor(
+                REPO_ROOT,
+                self.namespace,
+                self.store.root / "monitoring",
+                interval,
+                self.host_python,
+                self.parameters,
+            )
+            self.amf.start()
+            try:
+                for condition in self.study["conditions"]:
+                    for trial_number in range(1, self.study["trials_per_condition"] + 1):
+                        self.run_condition(condition, trial_number)
+                self._normal_shutdown = True
+            finally:
+                self.stop_backgrounds()
+                if self.resource_monitor is not None:
+                    self.resource_monitor.stop()
+                    self.resource_monitor = None
+                if self.deployment_changed:
+                    with self.executor.without_safety_checks():
+                        self.lifecycle.restore(self.store.root / "emergency-restoration")
+                    self.deployment_changed = False
+                if self.amf is not None:
+                    self.amf.stop()
+
+            summarize_run(self.store.root)
+            self.store.write_checksums()
+            return self.store.root

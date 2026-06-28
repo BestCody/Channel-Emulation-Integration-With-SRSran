@@ -1,0 +1,103 @@
+{
+  "channel": {
+    "activation_lead_ms": 100.0,
+    "activation_timeout_seconds": 8.0,
+    "continuous_ping_interval_seconds": 0.05,
+    "continuous_ping_start_sleep_seconds": 10.0,
+    "control_endpoint": "tcp://127.0.0.1:5555",
+    "final_hold_seconds": 5.0,
+    "late_margin_ms": 10.0,
+    "movement_lead_ms": 250.0,
+    "moving_dry_timeout_seconds": 300,
+    "moving_live_timeout_seconds": 300,
+    "noise_calibration_duration_seconds": 5.0,
+    "noise_calibration_interval_seconds": 0.05,
+    "noise_calibration_ping_count": 400,
+    "noise_calibration_ping_interval_seconds": 0.02,
+    "noise_command_timeout_seconds": 120,
+    "noise_measurement_duration_seconds": 2.0,
+    "noise_measurement_interval_seconds": 0.05,
+    "port_forward": "5555:5555",
+    "port_forward_host": "127.0.0.1",
+    "port_forward_port": 5555,
+    "port_forward_ready_seconds": 10,
+    "require_absolute_coefficients": true,
+    "stationary_dry_timeout_seconds": 300,
+    "stationary_live_timeout_seconds": 60,
+    "stationary_repeats": 3
+  },
+  "host_python": "python3",
+  "kubernetes": {
+    "amf_selector": "app=open5gs,nf=amf",
+    "baseline_overlay": "configs/ues/srsue",
+    "baseline_script": "bin/baseline.sh",
+    "gnb_container": "gnb",
+    "gnb_selector": "app=srsran,component=gnb",
+    "namespace": "open5gs",
+    "ue_config_volume": "ue-volume",
+    "ue_container": "ue",
+    "ue_deployment": "srsran-ue1",
+    "ue_selector": "app=srsran,component=ue,name=ue1"
+  },
+  "logs": {
+    "calibration_ping": "/tmp/evaluation-calibration-ping.log",
+    "continuous_ping": "/tmp/evaluation-continuous-ping.log",
+    "gnb": "/tmp/evaluation-gnb.log",
+    "gnuradio": "/tmp/evaluation-gnuradio.log",
+    "ue": "/tmp/evaluation-ue.log"
+  },
+  "monitoring": {
+    "enable_gpu": true,
+    "gpu_query_interval_ms": 100,
+    "nvidia_smi": "nvidia-smi",
+    "process_interval_seconds": 1.0
+  },
+  "radio": {
+    "attachment_log_phrase": "PDU Session Establishment successful",
+    "flowgraph_process_pattern": "[m]ulti_ue_.*channel.py|[m]ulti_ue_scenario.py",
+    "gateway": "10.41.0.1",
+    "gnb_process_pattern": "[/]srsran/gnb",
+    "start_gnb_script": "/srsran/config/start_gnb.sh",
+    "start_gnu_script": "/srsran/config/start_gnu.sh",
+    "start_ue_script": "/srsran/config/start_ue.sh",
+    "tun_interface": "tun_srsue",
+    "ue_netns": "ue1",
+    "ue_number": 1,
+    "ue_process_pattern": "[/]opt/srsRAN_4G/build/srsue/src/srsue"
+  },
+  "result_root": "../results/evaluation",
+  "results_must_be_outside_repo": true,
+  "runtime_images": {
+    "image_key": "live_channel",
+    "preflight_enabled": false
+  },
+  "scene": {
+    "max_placement_attempts": 1000,
+    "min_link_distance_m": 0.05,
+    "placement_seed": 42,
+    "randomize_positions": true
+  },
+  "study": {
+    "enforce_pilot_single_trial": false
+  },
+  "throughput": {
+    "allowed_statuses": [
+      "deferred",
+      "measured"
+    ],
+    "default_reason": "No verified user-plane throughput endpoint exists",
+    "default_status": "deferred",
+    "deferred_reason_terms": [
+      "verified",
+      "endpoint"
+    ]
+  },
+  "timeouts": {
+    "baseline_start_seconds": 180,
+    "radio_start_gnb_sleep_seconds": 3.0,
+    "radio_start_gnuradio_sleep_seconds": 5.0,
+    "radio_stop_sleep_seconds": 2.0,
+    "rollout_seconds": 300,
+    "ue_wait_gone_seconds": 180
+  }
+}
