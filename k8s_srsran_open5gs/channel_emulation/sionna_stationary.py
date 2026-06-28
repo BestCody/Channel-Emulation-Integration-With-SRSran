@@ -270,8 +270,6 @@ def calculate_stationary_channel(
         delay_values.tolist(),
         coefficient_values.tolist(),
         sample_rate,
-        max_taps=48,
-        max_delay=255,
         late_policy=config["conversion"]["late_policy"],
         normalization=config["conversion"]["normalization"],
     )

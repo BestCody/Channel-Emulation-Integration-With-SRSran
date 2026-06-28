@@ -2,12 +2,13 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../srsue-sparse
+  - ../srsue
 
 configMapGenerator:
   - name: ue1-configmap
     behavior: merge
     files:
+      - config/fixed_channel.py
       - config/channel_protocol.py
       - config/channel_control.py
       - config/multi_ue_live_channel.py
@@ -32,6 +33,11 @@ patches:
           name: channel-control
           containerPort: 5555
           protocol: TCP
+      - op: add
+        path: /spec/template/spec/volumes/0/configMap/items/-
+        value:
+          key: fixed_channel.py
+          path: fixed_channel.py
       - op: add
         path: /spec/template/spec/volumes/0/configMap/items/-
         value:

@@ -6,9 +6,7 @@ import json
 import math
 from dataclasses import dataclass
 
-
-MAX_TAPS = 48
-MAX_DELAY = 255
+from channel_protocol import MAX_TAPS, MAX_DELAY
 
 
 @dataclass(frozen=True)

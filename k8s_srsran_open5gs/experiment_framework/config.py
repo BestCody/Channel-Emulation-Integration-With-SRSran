@@ -3,7 +3,6 @@
 import copy
 import hashlib
 import json
-import math
 import pathlib
 from datetime import datetime, timezone
 
@@ -11,19 +10,34 @@ from .settings import load_benchmark_parameters, parameter_sources, resolve_repo
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODES = {
-    "baseline",
-    "fixed_attenuation",
-    "fixed_multipath",
-    "stationary_sionna",
-    "controlled_noise",
-    "moving_sionna",
+SOLVER_KEYS = {
+    "max_depth",
+    "max_num_paths_per_src",
+    "samples_per_src",
+    "synthetic_array",
+    "los",
+    "specular_reflection",
+    "diffuse_reflection",
+    "refraction",
+    "diffraction",
+    "edge_diffraction",
+    "diffraction_lit_region",
+    "seed",
 }
-LIVE_MODES = {"stationary_sionna", "controlled_noise", "moving_sionna"}
+MOBILITY = {"static", "moving"}
 
 
 class ConfigError(ValueError):
     pass
+
+
+def apply_propagation(scene, propagation):
+    """Overlay propagation toggles onto a scene"""
+    merged = copy.deepcopy(scene)
+    solver = dict(merged.get("solver", {}))
+    solver.update(propagation or {})
+    merged["solver"] = solver
+    return merged
 
 
 def sha256_file(path):
@@ -112,32 +126,43 @@ def validate_condition(condition, condition_path, parameters):
     condition_id = condition.get("condition_id")
     if not isinstance(condition_id, str) or not condition_id:
         raise ConfigError("condition_id is required")
-    mode = condition.get("mode")
-    if mode not in MODES:
-        raise ConfigError(f"unsupported condition mode: {mode}")
+    if not condition.get("scene"):
+        raise ConfigError(f"condition {condition_id} requires a scene")
+
+    propagation = condition.get("propagation", {})
+    if not isinstance(propagation, dict):
+        raise ConfigError(f"condition {condition_id} propagation must be an object")
+    unknown = set(propagation) - SOLVER_KEYS
+    if unknown:
+        raise ConfigError(f"condition {condition_id} has unknown propagation keys: {sorted(unknown)}")
+
+    mobility = condition.setdefault("mobility", "static")
+    if mobility not in MOBILITY:
+        raise ConfigError(f"condition {condition_id} mobility must be one of {sorted(MOBILITY)}")
+    if mobility == "moving" and not condition.get("trajectory"):
+        raise ConfigError(f"moving condition {condition_id} requires a trajectory")
+    if mobility == "static" and condition.get("trajectory"):
+        raise ConfigError(f"static condition {condition_id} must not define a trajectory")
+
+    noise = condition.get("noise", {})
+    if not isinstance(noise, dict):
+        raise ConfigError(f"condition {condition_id} noise must be an object")
+    if noise.get("enabled"):
+        if mobility != "static":
+            raise ConfigError(f"noise sweep requires a static condition: {condition_id}")
+        if not noise.get("profile") or not noise.get("calibration"):
+            raise ConfigError(f"noise sweep condition {condition_id} requires noise.profile and noise.calibration")
+
     validate_throughput(condition, parameters)
     _format_launcher(condition, parameters)
 
-    if mode == "fixed_attenuation":
-        attenuation = float(condition.get("attenuation_db", math.nan))
-        expected = float(condition.get("expected_amplitude", math.nan))
-        calculated = 10.0 ** (-attenuation / 20.0)
-        if not math.isclose(expected, calculated, rel_tol=0.0, abs_tol=1e-15):
-            raise ConfigError("fixed attenuation amplitude does not match dB value")
-
     channel = parameters.get("channel", {})
     if (
-        mode == "stationary_sionna"
-        and channel.get("require_absolute_coefficients", True)
+        channel.get("require_absolute_coefficients", True)
         and condition.get("normalization", "none") != "none"
     ):
-        raise ConfigError("stationary Sionna condition must preserve absolute coefficients")
-    if mode == "moving_sionna":
-        expected_noise = bool(channel.get("moving_noise_enabled", False))
-        if bool(condition.get("noise_enabled", expected_noise)) != expected_noise:
-            raise ConfigError("moving Sionna noise setting does not match benchmark parameters")
-    if mode in LIVE_MODES:
-        condition.setdefault("port_forward", channel.get("port_forward"))
+        raise ConfigError(f"condition {condition_id} must preserve absolute coefficients")
+    condition.setdefault("port_forward", channel.get("port_forward"))
     return condition
 
 
@@ -148,6 +173,18 @@ def add_artifact(condition, key, artifacts):
     path = source_path(value, relative_to=REPO_ROOT)
     record = source_record(path)
     condition[f"{key}_resolved"] = record
+    artifacts.append(record)
+
+
+def add_nested_artifact(condition, keys, resolved_key, artifacts):
+    value = condition
+    for key in keys:
+        value = value.get(key) if isinstance(value, dict) else None
+    if value is None:
+        return
+    path = source_path(value, relative_to=REPO_ROOT)
+    record = source_record(path)
+    condition[resolved_key] = record
     artifacts.append(record)
 
 
@@ -170,15 +207,12 @@ def resolve_condition(reference, study_path, parameters):
     }
 
     artifacts = [resolved["configuration"], source_record(profile_path)]
-    for key in (
-        "tap_profile",
-        "known_stress_profile_excluded",
-        "scene",
-        "noise_profile",
-        "noise_calibration",
-        "trajectory",
-    ):
-        add_artifact(resolved, key, artifacts)
+    add_artifact(resolved, "scene", artifacts)
+    if resolved.get("mobility") == "moving":
+        add_artifact(resolved, "trajectory", artifacts)
+    if (resolved.get("noise") or {}).get("enabled"):
+        add_nested_artifact(resolved, ("noise", "profile"), "noise_profile_resolved", artifacts)
+        add_nested_artifact(resolved, ("noise", "calibration"), "noise_calibration_resolved", artifacts)
     resolved["input_artifacts"] = artifacts
     return resolved
 
@@ -242,13 +276,6 @@ def load_and_resolve_study(path, *, resolved_at=None, parameter_files=None):
     identifiers = [item["condition_id"] for item in conditions]
     if len(identifiers) != len(set(identifiers)):
         raise ConfigError("condition identifiers must be unique")
-    policy = parameters.get("study", {})
-    if policy.get("require_all_modes"):
-        required_modes = set(policy.get("required_modes", sorted(MODES)))
-        if set(item["mode"] for item in conditions) != required_modes:
-            raise ConfigError("conditions do not match required benchmark modes")
-    if policy.get("baseline_first", True) and identifiers[0] != "baseline":
-        raise ConfigError("baseline must be the first condition")
 
     timestamp = resolved_at or datetime.now(timezone.utc).isoformat()
     resolved = copy.deepcopy(study)

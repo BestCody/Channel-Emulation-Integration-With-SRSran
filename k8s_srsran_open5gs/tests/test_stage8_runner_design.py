@@ -11,11 +11,9 @@ class Stage8RunnerDesignTests(unittest.TestCase):
         self.assertIn("--confirm-live", source)
         self.assertIn("run requires --confirm-live", source)
 
-    def test_runner_has_immediate_failed_condition_baseline_and_final_baseline(self):
+    def test_runner_has_failure_recovery_and_restore(self):
         source = (REPO_ROOT / "experiment_framework/runner.py").read_text()
         self.assertIn("failure-recovery", source)
-        self.assertIn("post-pilot-baseline", source)
-        self.assertIn("pre-pilot-baseline", source)
         self.assertIn("without_safety_checks", source)
         self.assertIn("self.deployment_changed = True", source)
 

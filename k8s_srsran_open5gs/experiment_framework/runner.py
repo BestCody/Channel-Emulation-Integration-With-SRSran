@@ -9,7 +9,7 @@ import signal
 import socket
 import time
 
-from .config import REPO_ROOT, sha256_file
+from .config import REPO_ROOT, apply_propagation, sha256_file
 from .failures import FailureRecord
 from .lifecycle import (
     AMFMonitor,
@@ -223,7 +223,7 @@ class PilotRunner:
             "reason": throughput.get("default_reason", "No verified user-plane throughput endpoint exists"),
         }
 
-    def stationary_channel(self, condition, trial_dir, trial_number):
+    def stationary_channel(self, condition, trial_dir, trial_number, scene_path):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
         dry = channel_dir / "stationary-dry-run.json"
         self.run_host(
@@ -231,7 +231,7 @@ class PilotRunner:
                 self.host_python,
                 str(REPO_ROOT / "channel_emulation/stationary_sionna_controller.py"),
                 "--dry-run",
-                "--scene-config", condition["scene_resolved"]["absolute_path"],
+                "--scene-config", scene_path,
                 "--output", str(dry),
                 "--repeats", str(self.channel.get("stationary_repeats", 3)),
                 *self._placement_args(condition, trial_number),
@@ -263,33 +263,18 @@ class PilotRunner:
             "live": json.loads(live.read_text(encoding="utf-8")),
         }
 
-    def run_fixed(self, condition, trial_dir):
+    def _resolve_scene(self, condition, trial_dir):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
-        if condition["mode"] == "fixed_attenuation":
-            channel = {
-                "attenuation_db": condition["attenuation_db"],
-                "taps": [{"delay": 0, "real": condition["expected_amplitude"], "imag": 0.0}],
-                "noise_added": False,
-                "interpretation": condition["interpretation"],
-            }
-        else:
-            source = pathlib.Path(condition["tap_profile_resolved"]["absolute_path"])
-            channel = json.loads(source.read_text(encoding="utf-8"))
-            channel["source_sha256"] = sha256_file(source)
-        write_json(channel_dir / "channel.json", channel)
-        profile = condition["measurement_profile_resolved"]["values"]["ping"]
-        ping = self.lifecycle.ping(
-            pathlib.Path(trial_dir) / "condition/traffic/ping.txt",
-            count=profile["count"],
-            interval=profile["interval_seconds"],
-            deadline=profile["deadline_seconds"],
-        )
-        return {"channel": channel, "ping": ping}
+        source = pathlib.Path(condition["scene_resolved"]["absolute_path"])
+        merged = apply_propagation(json.loads(source.read_text(encoding="utf-8")), condition.get("propagation"))
+        resolved = channel_dir / "resolved-scene.json"
+        write_json(resolved, merged)
+        return str(resolved)
 
-    def run_stationary(self, condition, trial_dir, trial_number):
+    def run_static(self, condition, trial_dir, trial_number, scene_path):
         self.start_port_forward(trial_dir)
         self.start_continuous_ping()
-        channel = self.stationary_channel(condition, trial_dir, trial_number)
+        channel = self.stationary_channel(condition, trial_dir, trial_number, scene_path)
         self.checked_sleep(float(self.channel.get("continuous_ping_start_sleep_seconds", 10.0)))
         continuous = self.stop_continuous_ping(trial_dir)
         final = condition["measurement_profile_resolved"]["values"]["final_ping"]
@@ -300,7 +285,7 @@ class PilotRunner:
         )
         return {"channel": channel, "continuous_ping": continuous, "ping": ping}
 
-    def run_moving(self, condition, trial_dir, trial_number):
+    def run_moving(self, condition, trial_dir, trial_number, scene_path):
         self.start_port_forward(trial_dir)
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
         dry = channel_dir / "moving-dry-run.json"
@@ -310,7 +295,7 @@ class PilotRunner:
                 str(REPO_ROOT / "channel_emulation/moving_sionna_controller.py"),
                 "--dry-run",
                 "--trajectory", condition["trajectory_resolved"]["absolute_path"],
-                "--scene-config", condition["scene_resolved"]["absolute_path"],
+                "--scene-config", scene_path,
                 "--output", str(dry),
                 *self._placement_args(condition, trial_number),
             ],
@@ -326,7 +311,7 @@ class PilotRunner:
                 str(REPO_ROOT / "channel_emulation/moving_sionna_controller.py"),
                 "--live",
                 "--trajectory", condition["trajectory_resolved"]["absolute_path"],
-                "--scene-config", condition["scene_resolved"]["absolute_path"],
+                "--scene-config", scene_path,
                 "--dry-run-report", str(dry),
                 "--expected-dry-run-sha256", digest,
                 "--endpoint", self.channel["control_endpoint"],
@@ -368,9 +353,9 @@ class PilotRunner:
         )
         return json.loads(pathlib.Path(output).read_text(encoding="utf-8"))
 
-    def run_noise(self, condition, trial_dir, trial_number):
+    def run_noise(self, condition, trial_dir, trial_number, scene_path):
         self.start_port_forward(trial_dir)
-        channel = self.stationary_channel(condition, trial_dir, trial_number)
+        channel = self.stationary_channel(condition, trial_dir, trial_number, scene_path)
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
         traffic_dir = pathlib.Path(trial_dir) / "condition/traffic"
         profile = json.loads(pathlib.Path(condition["noise_profile_resolved"]["absolute_path"]).read_text(encoding="utf-8"))
@@ -465,16 +450,13 @@ class PilotRunner:
             "throughput": self.throughput_record(),
         }
 
-    def run_condition_mode(self, condition, trial_dir, trial_number):
-        if condition["mode"] in {"fixed_attenuation", "fixed_multipath"}:
-            return self.run_fixed(condition, trial_dir)
-        if condition["mode"] == "stationary_sionna":
-            return self.run_stationary(condition, trial_dir, trial_number)
-        if condition["mode"] == "controlled_noise":
-            return self.run_noise(condition, trial_dir, trial_number)
-        if condition["mode"] == "moving_sionna":
-            return self.run_moving(condition, trial_dir, trial_number)
-        raise ValueError(f"unsupported runtime condition {condition['mode']}")
+    def run_channel(self, condition, trial_dir, trial_number):
+        scene_path = self._resolve_scene(condition, trial_dir)
+        if (condition.get("noise") or {}).get("enabled"):
+            return self.run_noise(condition, trial_dir, trial_number, scene_path)
+        if condition.get("mobility") == "moving":
+            return self.run_moving(condition, trial_dir, trial_number, scene_path)
+        return self.run_static(condition, trial_dir, trial_number, scene_path)
 
     def connection_failure_count(self, trial_dir):
         patterns = re.compile(r"error|failed|underflow|overflow|underrun|overrun|timeout|dropped", re.I)
@@ -514,7 +496,7 @@ class PilotRunner:
             )
             self.resource_monitor = ResourceMonitor(self.lifecycle, trial_dir, interval)
             self.resource_monitor.start()
-            result = self.run_condition_mode(condition, trial_dir, trial_number)
+            result = self.run_channel(condition, trial_dir, trial_number)
             self.resource_monitor.check()
             write_json(trial_dir / "condition/result.json", result)
             self.lifecycle.capture_logs(trial_dir)
@@ -592,57 +574,9 @@ class PilotRunner:
             )
             self.amf.start()
             try:
-                baseline_condition = self.study["conditions"][0]
-                baseline_trial = self.store.trial("baseline", 1)
-                write_json(baseline_trial / "resolved-condition.json", baseline_condition)
-                baseline_start = len(self.amf.samples())
-                pre = self.lifecycle.baseline_check(
-                    self.store.root / "pre-pilot-baseline",
-                    ping_count=baseline_condition["measurement_profile_resolved"]["values"]["ping"]["count"],
-                    monitor_trial_dir=baseline_trial,
-                )
-                pre.update({
-                    "condition_id": "baseline",
-                    "trial_number": 1,
-                    "serves_as_pre_pilot_baseline": True,
-                    "connection_failures": 0,
-                    "amf": self.amf_slice(baseline_start),
-                })
-                write_json(baseline_trial / "summary.json", pre)
-                write_json(baseline_trial / "condition/result.json", pre)
-                write_json(self.store.root / "pre-pilot-baseline/summary.json", pre)
-                if pre["status"] != "passed":
-                    raise CommandFailure("pre-pilot baseline failed")
-
-                for trial_number in range(2, self.study["trials_per_condition"] + 1):
-                    trial = self.store.trial("baseline", trial_number)
-                    write_json(trial / "resolved-condition.json", baseline_condition)
-                    start = len(self.amf.samples())
-                    result = self.lifecycle.baseline_check(
-                        trial / "condition/logs/baseline",
-                        ping_count=baseline_condition["measurement_profile_resolved"]["values"]["ping"]["count"],
-                        monitor_trial_dir=trial,
-                    )
-                    result.update({
-                        "condition_id": "baseline",
-                        "trial_number": trial_number,
-                        "connection_failures": 0,
-                        "amf": self.amf_slice(start),
-                    })
-                    write_json(trial / "condition/result.json", result)
-                    write_json(trial / "summary.json", result)
-                    if result["status"] != "passed":
-                        raise CommandFailure(f"baseline trial {trial_number} failed")
-
-                for condition in self.study["conditions"][1:]:
+                for condition in self.study["conditions"]:
                     for trial_number in range(1, self.study["trials_per_condition"] + 1):
                         self.run_condition(condition, trial_number)
-
-                final_ping_count = self.study["conditions"][0]["measurement_profile_resolved"]["values"]["ping"]["count"]
-                final = self.lifecycle.baseline_check(self.store.root / "post-pilot-baseline", ping_count=final_ping_count)
-                write_json(self.store.root / "post-pilot-baseline/summary.json", final)
-                if final["status"] != "passed":
-                    raise CommandFailure("post-pilot baseline failed")
                 self._normal_shutdown = True
             finally:
                 self.stop_backgrounds()

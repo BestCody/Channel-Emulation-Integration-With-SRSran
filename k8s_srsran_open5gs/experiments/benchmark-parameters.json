@@ -10,7 +10,6 @@
     "movement_lead_ms": 250.0,
     "moving_dry_timeout_seconds": 300,
     "moving_live_timeout_seconds": 300,
-    "moving_noise_enabled": false,
     "noise_calibration_duration_seconds": 5.0,
     "noise_calibration_interval_seconds": 0.05,
     "noise_calibration_ping_count": 400,
@@ -79,9 +78,7 @@
     "randomize_positions": true
   },
   "study": {
-    "baseline_first": true,
-    "enforce_pilot_single_trial": false,
-    "require_all_modes": false
+    "enforce_pilot_single_trial": false
   },
   "throughput": {
     "allowed_statuses": [

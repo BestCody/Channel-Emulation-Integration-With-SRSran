@@ -1,13 +1,11 @@
 import math
 import time
 
+from sionna_stationary import EXPECTED_SIONNA_RT_VERSION
+from sionna_stationary import EXPECTED_SIONNA_VERSION
+from sionna_stationary import EXPECTED_VARIANT
 from sionna_taps import convert_paths
 from trajectory import SPEED_OF_LIGHT
-
-
-EXPECTED_SIONNA_VERSION = "2.0.1"
-EXPECTED_SIONNA_RT_VERSION = "2.0.1"
-EXPECTED_VARIANT = "cuda_ad_mono_polarized"
 
 
 def _complex_array(value):
@@ -127,8 +125,6 @@ class MovingSionnaScene:
             delay_values.tolist(),
             coefficient_values.tolist(),
             self.sample_rate,
-            max_taps=48,
-            max_delay=255,
             late_policy=self.config["conversion"]["late_policy"],
             normalization=self.config["conversion"]["normalization"],
         )

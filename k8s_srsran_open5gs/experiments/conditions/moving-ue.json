@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "condition_id": "moving-ue",
+  "label": "Moving UE with specular reflections",
+  "launcher": "/srsran/config/start_gnu_live_channel.sh {ue_number}",
+  "overlay": "configs/ues/srsue-live",
+  "measurement_profile": "../measurement-profiles/dynamic-channel.json",
+  "scene": "channel_emulation/scenes/stationary_reflector.json",
+  "mobility": "moving",
+  "trajectory": "channel_emulation/trajectories/short_straight_line.json",
+  "propagation": {
+    "los": true,
+    "specular_reflection": true
+  },
+  "throughput": {
+    "status": "deferred",
+    "reason": "No verified user-plane throughput endpoint exists"
+  }
+}

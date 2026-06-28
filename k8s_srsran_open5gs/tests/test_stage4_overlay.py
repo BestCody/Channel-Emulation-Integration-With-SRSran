@@ -12,9 +12,9 @@ BLOCK_IMPL = REPO_ROOT / "gr-sionna-channel/lib/sparse_channel_cc_impl.cc"
 
 
 class Stage4OverlayTests(unittest.TestCase):
-    def test_overlay_is_separate_and_preserves_stage3(self):
+    def test_overlay_builds_on_base_and_sets_live_image(self):
         text = (OVERLAY / "kustomization.yaml").read_text()
-        self.assertIn("../srsue-sparse", text)
+        self.assertIn("../srsue", text)
         self.assertIn("localhost/srsue-live:stage4-gr38-v1", text)
         self.assertIn("value: Never", text)
 

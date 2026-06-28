@@ -7,22 +7,17 @@
     "stop_on_restart": true
   },
   "baseline_policy": {
-    "after_failed_condition": "immediate-complete-baseline-and-stop",
-    "after_pilot": "complete",
-    "after_successful_condition": "restoration-validation-only",
-    "baseline_condition_reuses_precheck": true,
-    "before_pilot": "complete"
+    "after_failed_condition": "recovery-check-and-stop",
+    "after_successful_condition": "restoration-validation-only"
   },
   "condition_order": "declared",
   "conditions": [
-    "../conditions/baseline.json",
-    "../conditions/fixed-attenuation-6db.json",
-    "../conditions/fixed-multipath-80.json",
-    "../conditions/stationary-sionna.json",
-    "../conditions/controlled-noise.json",
-    "../conditions/moving-sionna.json"
+    "../conditions/static-reflections-on.json",
+    "../conditions/static-reflections-off.json",
+    "../conditions/moving-ue.json",
+    "../conditions/noise-sweep.json"
   ],
-  "description": "Pilot comparison of the configured channel-emulation benchmark conditions",
+  "description": "Pilot comparison of parameter-defined Sionna channel conditions",
   "failure_policy": {
     "continue_after_failed_condition": false,
     "restoration_failure_stops_study": true,

@@ -4,6 +4,11 @@ import math
 from dataclasses import asdict, dataclass
 
 
+# mirror of the compiled sparse_channel_cc limits
+MAX_TAPS = 48
+MAX_DELAY = 255
+
+
 @dataclass(frozen=True)
 class Tap:
     delay: int
@@ -34,8 +39,8 @@ def convert_paths(
     coefficients,
     sample_rate,
     *,
-    max_taps=48,
-    max_delay=255,
+    max_taps=MAX_TAPS,
+    max_delay=MAX_DELAY,
     late_policy="reject",
     normalization="none",
 ):

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "condition_id": "static-reflections-off",
+  "label": "Static UE, line-of-sight only",
+  "launcher": "/srsran/config/start_gnu_live_channel.sh {ue_number}",
+  "overlay": "configs/ues/srsue-live",
+  "measurement_profile": "../measurement-profiles/dynamic-channel.json",
+  "scene": "channel_emulation/scenes/stationary_reflector.json",
+  "mobility": "static",
+  "propagation": {
+    "los": true,
+    "specular_reflection": false,
+    "diffuse_reflection": false,
+    "diffraction": false
+  },
+  "throughput": {
+    "status": "deferred",
+    "reason": "No verified user-plane throughput endpoint exists"
+  }
+}
