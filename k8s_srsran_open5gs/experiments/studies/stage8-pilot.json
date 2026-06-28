@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "study_id": "stage8-pilot",
+  "description": "One-trial pilot comparing the completed Stage 1-7 channel modes",
+  "pilot": true,
+  "result_root": "/home/h3lou/sionna-srsran/results/stage8",
+  "trials_per_condition": 1,
+  "condition_order": "declared",
+  "runtime_images": {
+    "stage4": {
+      "reference": "localhost/srsue-live:stage4-gr38-v1",
+      "digest": "sha256:ea645112527d11945b81254eee11f020e1d0ad3a28f2433d07d77f9cf078a935",
+      "archive": "/tmp/stage4-results/20260621T202818Z/srsue-live-stage4-gr38-v1.tar",
+      "archive_sha256": "4e42f7a97298186686eb5d34903d091c380180a52be7fbeee3e7e5d17e982b8d"
+    }
+  },
+  "conditions": [
+    "../conditions/baseline.json",
+    "../conditions/fixed-attenuation-6db.json",
+    "../conditions/fixed-multipath-80.json",
+    "../conditions/stationary-sionna.json",
+    "../conditions/controlled-noise.json",
+    "../conditions/moving-sionna.json"
+  ],
+  "baseline_policy": {
+    "before_pilot": "complete",
+    "baseline_condition_reuses_precheck": true,
+    "after_successful_condition": "restoration-validation-only",
+    "after_failed_condition": "immediate-complete-baseline-and-stop",
+    "after_pilot": "complete"
+  },
+  "amf_safety": {
+    "continuous": true,
+    "stop_on_restart": true,
+    "stop_on_identity_change": true,
+    "stop_at_limit_fraction": 0.90,
+    "stop_at_growth_bytes": 134217728
+  },
+  "failure_policy": {
+    "retry_failed_trials": false,
+    "continue_after_failed_condition": false,
+    "retain_partial_results": true,
+    "restoration_failure_stops_study": true
+  },
+  "reporting": {
+    "show_individual_trials": true,
+    "confidence_intervals": false,
+    "confidence_interval_reason": "Five future trials are too few for strong interval claims",
+    "throughput": "deferred-no-verified-user-plane-endpoint"
+  }
+}

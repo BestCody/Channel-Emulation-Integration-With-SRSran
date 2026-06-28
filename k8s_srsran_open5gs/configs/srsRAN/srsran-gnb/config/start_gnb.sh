@@ -1,0 +1,1 @@
+/srsran/gnb -c /srsran/config/srsran-gnb.yaml

@@ -1,0 +1,91 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: srsran-gnb
+  labels:
+    app: srsran
+    component: gnb
+spec:
+  selector:
+    matchLabels:
+      app: srsran
+      component: gnb
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: srsran
+        component: gnb
+      annotations:
+        k8s.v1.cni.cncf.io/networks: '[
+          { "name": "n3network", "interface": "n3", "ips": [ "10.10.3.231/24" ] }
+          ]'
+    spec:
+      # nodeSelector:
+      #   kubernetes.io/hostname: <node_name>
+      containers:
+        - image: ghcr.io/sulaimanalmani/srsranzmq/srsran_zmq:v1.0
+          # imagePullPolicy: Always
+          name: gnb
+          resizePolicy:
+          - resourceName: cpu
+            restartPolicy: NotRequired
+          resources:
+            requests:
+              memory: "3000Mi"
+              cpu: "50m"
+            limits:
+              memory: "3000Mi"
+              cpu: "5000m"
+          ports:
+            - name: gnb-ue
+              containerPort: 4997
+              protocol: UDP
+            - name: metrics
+              containerPort: 8000  # Assuming your metrics server runs on this port
+              protocol: TCP
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+            # privileged: true
+          command: ["/srsran/config/wrapper.sh"]
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "rm -rf /mnt/*_log.txt"]
+          volumeMounts:
+            - mountPath: /srsran/config
+              name: gnb-volume
+            - mountPath: /var/log/
+              name: varlog
+            - name: host-mount
+              mountPath: /mnt/
+        - image: busybox
+          name: gnb-logs
+          args: [/bin/sh, -c, 'while ! tail -f /var/log/gnb.log 2>/dev/null; do sleep 1 ; done']
+          volumeMounts:
+            - mountPath: /var/log/
+              name: varlog
+
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      volumes:
+        - name: gnb-volume
+          configMap:
+            name: gnb-configmap
+            items:
+              - key: srsran-gnb.yaml
+                path: srsran-gnb.yaml
+              - key: wrapper.sh
+                path: wrapper.sh
+                mode: 0777
+              - key: start_gnb.sh
+                path: start_gnb.sh
+                mode: 0777
+        - name: varlog
+          emptyDir: {}
+        - name: host-mount
+          hostPath:
+            path: /mnt/
+            type: Directory

@@ -1,0 +1,1 @@
+sudo rm /opt/cni/bin/multus-shim

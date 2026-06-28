@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "condition_id": "stationary-sionna",
+  "label": "Stationary Sionna RT absolute channel",
+  "mode": "stationary_sionna",
+  "measurement_profile": "../measurement-profiles/dynamic-channel.json",
+  "overlay": "configs/ues/srsue-live",
+  "launcher": "/srsran/config/start_gnu_live_channel.sh 1",
+  "scene": "channel_emulation/scenes/stationary_reflector.json",
+  "normalization": "none",
+  "port_forward": "5555:5555",
+  "throughput": {
+    "status": "deferred",
+    "reason": "No verified user-plane throughput endpoint exists"
+  }
+}

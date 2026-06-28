@@ -1,0 +1,582 @@
+{
+  "subscriber_1": {
+    "_id": "",
+    "imsi": "001010000000001",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_2": {
+    "_id": "",
+    "imsi": "001010000000002",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_3": {
+    "_id": "",
+    "imsi": "001010000000003",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_4": {
+    "_id": "",
+    "imsi": "001010000000004",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_5": {
+    "_id": "",
+    "imsi": "001010000000005",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_6": {
+    "_id": "",
+    "imsi": "001010000000006",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_7": {
+    "_id": "",
+    "imsi": "001010000000007",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_8": {
+    "_id": "",
+    "imsi": "001010000000008",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_9": {
+    "_id": "",
+    "imsi": "001010000000009",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  },
+  "subscriber_10": {
+    "_id": "",
+    "imsi": "001010000000010",
+    "subscribed_rau_tau_timer": 12,
+    "network_access_mode": 0,
+    "subscriber_status": 0,
+    "access_restriction_data": 32,
+    "slice": [
+      {
+        "sst": 1,
+        "sd": "000001",
+        "default_indicator": true,
+        "session": [
+          {
+            "name": "internet",
+            "type": 1,
+            "pcc_rule": [],
+            "ambr": {
+              "uplink": {
+                "value": 1,
+                "unit": 3
+              },
+              "downlink": {
+                "value": 1,
+                "unit": 3
+              }
+            },
+            "qos": {
+              "index": 9,
+              "arp": {
+                "priority_level": 8,
+                "pre_emption_capability": 1,
+                "pre_emption_vulnerability": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "ambr": {
+      "uplink": {
+        "value": 1,
+        "unit": 3
+      },
+      "downlink": {
+        "value": 1,
+        "unit": 3
+      }
+    },
+    "security": {
+      "k": "465B5CE8B199B49FAA5F0A2EE238A6BC",
+      "amf": "8000",
+      "op": null,
+      "opc": "E8ED289DEBA952E4283B54E88E6183CA"
+    },
+    "schema_version": 1,
+    "__v": 0
+  }
+}

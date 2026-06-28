@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "name": "short-straight-line",
+  "update_interval_ms": 50,
+  "points": [
+    {"index": 0, "time_ms": 0, "position": [0.05, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 1, "time_ms": 50, "position": [0.06, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 2, "time_ms": 100, "position": [0.07, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 3, "time_ms": 150, "position": [0.08, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 4, "time_ms": 200, "position": [0.09, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 5, "time_ms": 250, "position": [0.10, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 6, "time_ms": 300, "position": [0.11, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 7, "time_ms": 350, "position": [0.12, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 8, "time_ms": 400, "position": [0.13, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 9, "time_ms": 450, "position": [0.14, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 10, "time_ms": 500, "position": [0.15, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 11, "time_ms": 550, "position": [0.16, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 12, "time_ms": 600, "position": [0.17, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 13, "time_ms": 650, "position": [0.18, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 14, "time_ms": 700, "position": [0.19, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 15, "time_ms": 750, "position": [0.20, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 16, "time_ms": 800, "position": [0.21, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 17, "time_ms": 850, "position": [0.22, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 18, "time_ms": 900, "position": [0.23, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 19, "time_ms": 950, "position": [0.24, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2},
+    {"index": 20, "time_ms": 1000, "position": [0.25, 0.0, 10.0], "velocity": [0.2, 0.0, 0.0], "speed_mps": 0.2}
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profile_id": "dynamic-channel",
+  "attachment_timeout_seconds": 120,
+  "settle_seconds": 3,
+  "continuous_ping": {
+    "interval_seconds": 0.05,
+    "deadline_seconds": 1
+  },
+  "final_ping": {
+    "count": 20,
+    "deadline_seconds": 2
+  },
+  "resource_interval_seconds": 1.0,
+  "process_identity_interval_seconds": 0.25,
+  "amf_interval_seconds": 0.5,
+  "gpu_interval_ms": 100
+}

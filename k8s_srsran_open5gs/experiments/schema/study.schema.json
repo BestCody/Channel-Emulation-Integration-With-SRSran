@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage8-study.schema.json",
+  "title": "Stage 8 experiment study",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "study_id",
+    "result_root",
+    "trials_per_condition",
+    "conditions",
+    "baseline_policy",
+    "amf_safety"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "study_id": {"type": "string", "minLength": 1},
+    "result_root": {"type": "string", "minLength": 1},
+    "pilot": {"type": "boolean"},
+    "trials_per_condition": {"type": "integer", "minimum": 1},
+    "conditions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "baseline_policy": {"type": "object"},
+    "amf_safety": {"type": "object"}
+  },
+  "additionalProperties": true
+}
