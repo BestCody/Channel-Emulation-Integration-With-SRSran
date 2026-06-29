@@ -12,7 +12,5 @@
     "deadline_seconds": 2
   },
   "resource_interval_seconds": 1.0,
-  "process_identity_interval_seconds": 0.25,
-  "amf_interval_seconds": 0.5,
-  "gpu_interval_ms": 100
+  "amf_interval_seconds": 0.5
 }

@@ -6,11 +6,6 @@
     "stop_on_identity_change": true,
     "stop_on_restart": true
   },
-  "baseline_policy": {
-    "after_failed_condition": "recovery-check-and-stop",
-    "after_successful_condition": "restoration-validation-only"
-  },
-  "condition_order": "declared",
   "conditions": [
     "../conditions/static-reflections-on.json",
     "../conditions/static-reflections-off.json",
@@ -18,19 +13,7 @@
     "../conditions/noise-sweep.json"
   ],
   "description": "Pilot comparison of parameter-defined Sionna channel conditions",
-  "failure_policy": {
-    "continue_after_failed_condition": false,
-    "restoration_failure_stops_study": true,
-    "retain_partial_results": true,
-    "retry_failed_trials": false
-  },
   "pilot": true,
-  "reporting": {
-    "confidence_interval_reason": "Five future trials are too few for strong interval claims",
-    "confidence_intervals": false,
-    "show_individual_trials": true,
-    "throughput": "deferred-no-verified-user-plane-endpoint"
-  },
   "schema_version": 1,
   "study_id": "channel-evaluation-pilot",
   "trials_per_condition": 1

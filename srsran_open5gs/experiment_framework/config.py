@@ -10,9 +10,7 @@ from .settings import load_benchmark_parameters, parameter_sources, resolve_repo
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-# Boolean ray-interaction effects. A condition turns on only the effects it
-# names; everything else resolves to False. Keep in sync with
-# channel_emulation/sionna_stationary.py:PROPAGATION_EFFECTS.
+# Effects default off; mirror list in sionna_stationary.py.
 PROPAGATION_EFFECTS = (
     "los",
     "specular_reflection",

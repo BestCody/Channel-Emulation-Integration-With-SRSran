@@ -10,10 +10,8 @@
     5,
     0
   ],
-  "maximum_noise_amplitude": 512.0,
   "measurement_ping_count": 100,
   "measurement_ping_interval_seconds": 0.1,
   "settle_seconds": 5,
-  "stop_at_first_sustained_attachment_loss": true,
   "throughput": "deferred-no-verified-endpoint"
 }

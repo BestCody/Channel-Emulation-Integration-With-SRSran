@@ -62,8 +62,7 @@ spec:
           volumeMounts:
             - name: datadir
               mountPath: /data/db
-      # If your PV is pre-provisioned with different ownership/permissions,
-      # this initContainer will fix it. Safe to keep; it’s a no-op if already correct.
+      # Fixes PV ownership; no-op if already correct.
       initContainers:
         - name: fix-perms
           image: busybox:1.36

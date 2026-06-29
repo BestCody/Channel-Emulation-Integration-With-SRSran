@@ -3,8 +3,5 @@
   "profile_id": "noise-sweep",
   "attachment_timeout_seconds": 120,
   "resource_interval_seconds": 1.0,
-  "amf_interval_seconds": 0.5,
-  "gpu_interval_ms": 100,
-  "signal_calibration_seconds": 5,
-  "signal_calibration_interval_seconds": 0.05
+  "amf_interval_seconds": 0.5
 }

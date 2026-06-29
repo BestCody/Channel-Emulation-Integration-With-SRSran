@@ -6,9 +6,6 @@
     "amf_safety": {
       "type": "object"
     },
-    "baseline_policy": {
-      "type": "object"
-    },
     "conditions": {
       "items": {
         "minLength": 1,
@@ -51,7 +48,6 @@
     "study_id",
     "trials_per_condition",
     "conditions",
-    "baseline_policy",
     "amf_safety"
   ],
   "title": "Evaluation experiment study",

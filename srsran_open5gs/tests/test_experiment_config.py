@@ -82,11 +82,8 @@ class ExperimentConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(ConfigError, message):
                 load_and_resolve_study(study_path)
 
-    def test_restore_and_amf_policy_is_enforced(self):
+    def test_amf_safety_policy_is_enforced(self):
         resolved = load_and_resolve_study(PILOT)
-        baseline = resolved["baseline_policy"]
-        self.assertEqual(baseline["after_successful_condition"], "restoration-validation-only")
-        self.assertEqual(baseline["after_failed_condition"], "recovery-check-and-stop")
         amf = resolved["amf_safety"]
         self.assertTrue(amf["continuous"])
         self.assertEqual(amf["stop_at_limit_fraction"], 0.90)

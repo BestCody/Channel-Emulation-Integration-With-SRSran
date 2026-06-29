@@ -1,5 +1,4 @@
-## Bash file to start the UE using /opt/srsRAN_4G/build/srsue/src/srsue /srsran/config/ue1.conf
-## The UE number is passed as an argument to the script
+## Starts srsUE; argument is the UE number.
 
 python3 /srsran/config/generate_ue_conf.py $1 /tmp/
 ip netns add ue$1

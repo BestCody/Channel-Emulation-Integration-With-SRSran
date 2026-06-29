@@ -247,8 +247,7 @@ setup-ovs-cni() {
   sudo ovs-vsctl --may-exist add-br n3br
   sudo ovs-vsctl --may-exist add-br n4br
 
-  # install ovs-cni
-  # install cluster-network-addons operator
+  # install ovs-cni and network-addons operator
   cecho "GREEN" "Installing ovs-cni ..."
 
   kubectl apply -f https://github.com/kubevirt/cluster-network-addons-operator/releases/download/v0.89.1/namespace.yaml

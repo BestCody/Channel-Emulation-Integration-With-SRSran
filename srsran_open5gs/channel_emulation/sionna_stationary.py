@@ -14,10 +14,7 @@ EXPECTED_SIONNA_VERSION = "2.0.1"
 EXPECTED_SIONNA_RT_VERSION = "2.0.1"
 EXPECTED_VARIANT = "cuda_ad_mono_polarized"
 
-# Boolean ray-interaction effects. Every effect defaults to disabled; a scene
-# or condition turns on only the ones it names and anything omitted resolves to
-# False (see _solver_options). Keep in sync with
-# experiment_framework/config.py:PROPAGATION_EFFECTS.
+# Effects default off; mirror list in config.py.
 PROPAGATION_EFFECTS = (
     "los",
     "specular_reflection",
