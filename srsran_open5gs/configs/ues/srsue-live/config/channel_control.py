@@ -91,7 +91,7 @@ class ChannelControlServer:
         return blocks
 
     def apply_update(self, update):
-        # Latest-wins: the streamed CIR is applied immediately.
+        # Apply latest streamed CIR immediately
         coefficients = tuple(tap.coefficient for tap in update.taps)
         delays = tuple(tap.delay for tap in update.taps)
         with self._transaction_lock:
@@ -103,7 +103,7 @@ class ChannelControlServer:
             self.accepted_updates += 1
 
     def _handle_request(self, request):
-        # Control plane only; CIRs arrive on the PULL stream.
+        # CIRs arrive on the PULL stream
         message_type = request.get("msg_type")
         if request.get("version") != PROTOCOL_VERSION:
             raise ValueError("unsupported protocol version")
@@ -114,7 +114,7 @@ class ChannelControlServer:
         raise ValueError(f"unsupported message type: {message_type}")
 
     def _process_stream_frame(self, payload):
-        # Fire-and-forget CIR frame; drop and count if invalid.
+        # Drop invalid fire-and-forget CIR frames
         try:
             update = parse_update(decode_message(payload))
             self.apply_update(update)

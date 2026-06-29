@@ -23,8 +23,7 @@ def measured_snr_db(signal_power, noise_power):
 
 
 def sigma_for_snr(signal_power, snr_db):
-    # Engine AWGN has power sigma^2, so a target SNR maps directly:
-    # noise_power = signal_power / 10^(snr/10); sigma = sqrt(noise_power).
+    # AWGN sigma maps directly from target SNR
     signal_power = finite_number(signal_power, "signal_power")
     snr_db = finite_number(snr_db, "snr_db")
     if signal_power <= 0.0:

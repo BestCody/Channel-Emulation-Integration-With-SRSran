@@ -10,7 +10,7 @@ from .settings import load_benchmark_parameters, parameter_sources, resolve_repo
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-# Effects default off; mirror list in sionna_stationary.py.
+# Effects default off, mirror list in sionna_stationary.py
 PROPAGATION_EFFECTS = (
     "los",
     "specular_reflection",
@@ -20,7 +20,7 @@ PROPAGATION_EFFECTS = (
     "edge_diffraction",
     "diffraction_lit_region",
 )
-# Non-toggle solver tuning that the scene owns rather than the condition.
+# Scene-owned solver tuning
 SOLVER_TUNING_KEYS = {
     "max_depth",
     "max_num_paths_per_src",
@@ -37,12 +37,7 @@ class ConfigError(ValueError):
 
 
 def apply_propagation(scene, propagation):
-    """Overlay propagation toggles onto a scene.
-
-    Propagation effects are never inherited from the scene: every effect
-    starts disabled and the condition turns on only the ones it names, so an
-    effect the condition omits always resolves to False.
-    """
+    """Apply condition propagation toggles without inheritance"""
     merged = copy.deepcopy(scene)
     solver = dict(merged.get("solver", {}))
     for effect in PROPAGATION_EFFECTS:

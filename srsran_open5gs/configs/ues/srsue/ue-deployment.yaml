@@ -63,8 +63,7 @@ spec:
               containerPort: 8000  # Assuming your metrics server runs on this port
               protocol: TCP
           resources:
-            # GPU for the dense-FIR channel engine; requires the NVIDIA
-            # device plugin and container runtime on the node.
+            # GPU channel engine requires NVIDIA runtime
             limits:
               nvidia.com/gpu: 1
       dnsPolicy: ClusterFirst

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# function to print usage message
+# Print usage
 function usage {
   echo "Usage: $0 keyword [namespace]"
   echo "       keyword: a string that identifies the pod you want to access, e.g. amf, smf, upf"
@@ -8,7 +8,7 @@ function usage {
   echo "If no namespace is specified, a namespace picker will be displayed."
 }
 
-# Function to prompt the user to select a namespace from a list
+# Prompt for namespace
 select_namespace() {
   echo "Select a namespace:"
   select NAMESPACE in $(kubectl get namespaces -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
@@ -20,7 +20,7 @@ select_namespace() {
   done
 }
 
-# Function to prompt the user to select a container from a list
+# Prompt for container
 select_container() {
   echo "Select a container:"
   select CONTAINER in $(kubectl get pod $POD -n $NAMESPACE -o jsonpath='{range .spec.containers[*]}{.name}{"\n"}{end}')
@@ -32,7 +32,7 @@ select_container() {
   done
 }
 
-# Display help message if no arguments provided
+# Display help when no arguments are provided
 if [ "$#" -eq 0 ]
 then
   usage
@@ -41,7 +41,7 @@ fi
 
 POD_KEYWORD=$1
 
-# Prompt for namespace if not specified
+# Prompt for namespace when omitted
 if [ "$#" -eq 1 ]
 then
   select_namespace
@@ -79,4 +79,3 @@ done
 
 echo "No supported shell found in pod: $POD"
 exit 1
-

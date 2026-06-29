@@ -21,8 +21,7 @@ namespace gr {
                     const std::vector<unsigned short>& delays,
                     std::size_t samples_per_symbol = 0);
 
-                // Stream a new CIR + per-symbol noise sigma; latched
-                // at the next symbol boundary.
+                // Stream CIR and noise sigma at symbol boundaries
                 virtual void set_channel(
                     const std::vector<gr_complex>& coefficients,
                     const std::vector<unsigned short>& delays,

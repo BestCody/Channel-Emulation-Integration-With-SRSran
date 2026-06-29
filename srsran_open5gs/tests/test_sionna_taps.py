@@ -33,14 +33,14 @@ class SionnaTapTests(unittest.TestCase):
 
     def test_fractional_delay_spreads_and_preserves_energy(self):
         rate = 10.0
-        # 20.5 samples: kernel sits well inside the buffer (no edge clipping)
+        # Kernel sits inside the buffer
         result = convert_paths([20.5 / rate], [1 + 0j], rate)
         self.assertTrue(result["safe_to_send"])
         taps = _taps(result)
         self.assertGreater(len(taps), 2)  # a fractional delay spreads
         energy = sum(abs(coeff) ** 2 for coeff in taps.values())
         self.assertAlmostEqual(energy, 1.0, places=9)
-        # the main lobe straddles samples 20 and 21 symmetrically
+        # Main lobe straddles samples 20 and 21
         powers = {delay: abs(coeff) ** 2 for delay, coeff in taps.items()}
         self.assertAlmostEqual(powers[20], powers[21], places=9)
 
@@ -55,7 +55,7 @@ class SionnaTapTests(unittest.TestCase):
         rate = 23_040_000.0
         first = 0.125 + 0.25j
         second = -0.5j
-        # two non-overlapping fractional paths: energies add independently
+        # Non-overlapping paths add energy independently
         result = convert_paths(
             [20.25 / rate, 40.5 / rate],
             [first, second],
@@ -82,14 +82,14 @@ class SionnaTapTests(unittest.TestCase):
 
     def test_no_tap_cap_keeps_all_paths(self):
         rate = 100.0
-        # 100 distinct integer sample delays; the old engine capped at 48
+        # The engine keeps all distinct sample delays
         delays = [(2 * index) / rate for index in range(100)]
         coefficients = [complex(index + 1, 0) for index in range(100)]
         result = convert_paths(delays, coefficients, rate)
         self.assertTrue(result["safe_to_send"])
         taps = _taps(result)
         self.assertEqual(len(taps), 100)
-        # the weakest path (delay 0) is retained, not discarded
+        # The weakest path is retained
         self.assertIn(0, taps)
         self.assertAlmostEqual(taps[0].real, 1.0, places=9)
 

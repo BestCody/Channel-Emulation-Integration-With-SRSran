@@ -173,7 +173,7 @@ def validate_dry_report(path, expected_sha, radio, trajectory):
 
 
 def stream_cir(client, taps, sequence):
-    # Fire one CIR into the stream; latest-wins, no activation.
+    # Stream one latest-wins CIR
     message = build_update(
         taps=taps,
         sequence=sequence,

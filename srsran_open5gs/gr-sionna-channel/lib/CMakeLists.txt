@@ -4,7 +4,7 @@ add_library(
     sparse_channel_cc_impl.cc
 )
 
-# The dense-FIR engine runs on the GPU.
+# Dense-FIR runs on the GPU
 target_sources(
     gnuradio-sionna_channel
     PRIVATE dense_channel_cuda.cu

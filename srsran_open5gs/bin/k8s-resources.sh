@@ -1,15 +1,5 @@
 #!/bin/bash
-#
-# Monitor overall Kubernetes cluster utilization and capacity.
-#
-# Original source:
-# https://github.com/kubernetes/kubernetes/issues/17512#issuecomment-367212930
-#
-# Tested with:
-#   - AWS EKS v1.11.5
-#
-# Does not require any other dependencies to be installed in the cluster.
-# Source: https://www.jeffgeerling.com/blog/2019/monitoring-kubernetes-cluster-utilization-and-capacity-poor-mans-way
+# Show Kubernetes node request utilization
 
 set -e
 

@@ -14,7 +14,7 @@ EXPECTED_SIONNA_VERSION = "2.0.1"
 EXPECTED_SIONNA_RT_VERSION = "2.0.1"
 EXPECTED_VARIANT = "cuda_ad_mono_polarized"
 
-# Effects default off; mirror list in config.py.
+# Effects default off, mirror list in config.py
 PROPAGATION_EFFECTS = (
     "los",
     "specular_reflection",
@@ -27,7 +27,7 @@ PROPAGATION_EFFECTS = (
 
 
 def _solver_options(solver):
-    """Resolve solver toggles, defaulting every propagation effect to False."""
+    """Resolve solver toggles with every effect defaulted off"""
     options = dict(solver or {})
     for effect in PROPAGATION_EFFECTS:
         options.setdefault(effect, False)
@@ -53,11 +53,7 @@ def _distance(first, second):
 
 
 def scene_bounding_box(scene_name):
-    """Return the physical (min, max) corners of a bundled Sionna scene.
-
-    The bounds come straight from the rendered geometry so randomized
-    placements can never fall outside the scene the channel is solved in.
-    """
+    """Return the physical scene bounding box"""
     import mitsuba as mi  # noqa: F401  (importing sionna.rt selects the variant)
     from sionna.rt import load_scene
     from sionna.rt import scene as rt_scene

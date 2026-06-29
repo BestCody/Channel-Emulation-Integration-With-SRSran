@@ -93,8 +93,7 @@ class MultiUeNoiseChannel(gr.top_block):
             self.connect((uplink_source, 0), (self.uplink_adder, index))
             self.connect((self.throttle, 0), (downlink_sink, 0))
 
-        # Noise is applied inside the channel block from the streamed
-        # CIR sigma; there is no separate noise stage.
+        # Noise sigma is applied inside the channel block
         self.connect(
             (self.gnb_downlink_source, 0),
             (self.downlink_channel, 0),

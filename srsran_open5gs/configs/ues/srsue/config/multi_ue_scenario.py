@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-#
 # SPDX-License-Identifier: GPL-3.0
-#
-# GNU Radio Python Flow Graph
-# Title: srsRAN_multi_UE
-# GNU Radio version: 3.10.1.1
 
 from gnuradio import blocks
 from gnuradio import gr
@@ -25,17 +18,13 @@ class multi_ue_scenario(gr.top_block):
     def __init__(self, num_ues):
         gr.top_block.__init__(self, "srsRAN_multi_UE")
 
-        ##################################################
         # Variables
-        ##################################################
         zmq_timeout = 100
         zmq_hwm = -1
         samp_rate = 23040000
         slow_down_ratio = 1
 
-        ##################################################
         # Base Blocks (Always included)
-        ##################################################
         self.zeromq_req_source_0 = zeromq.req_source(
             gr.sizeof_gr_complex,
             1,
@@ -53,9 +42,7 @@ class multi_ue_scenario(gr.top_block):
             zmq_hwm,
         )
 
-        ##################################################
         # UE-specific Blocks
-        ##################################################
         self.zeromq_req_sources = []
         self.zeromq_rep_sinks = []
         self.blocks_throttle = blocks.throttle(gr.sizeof_gr_complex*1, samp_rate / slow_down_ratio, True)

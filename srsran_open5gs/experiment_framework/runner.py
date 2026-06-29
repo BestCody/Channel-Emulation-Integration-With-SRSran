@@ -424,9 +424,7 @@ class PilotRunner:
                     channel_dir / f"level-{level}-apply.log",
                 )
                 self.checked_sleep(profile["settle_seconds"])
-                # Open-loop noise: sigma is applied analytically from the
-                # frozen plan, so we snapshot status (signal power, liveness)
-                # rather than measure achieved noise.
+                # Snapshot open-loop noise status, not measured SNR
                 status = self.noise_command(
                     ["status"],
                     channel_dir / f"level-{level}-status.json",

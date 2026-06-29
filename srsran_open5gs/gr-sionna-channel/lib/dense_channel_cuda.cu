@@ -8,7 +8,7 @@ namespace sionna_channel {
 
 namespace {
 
-// One thread per output sample; loops the dense tap set.
+// One thread per output sample
 __global__ void dense_fir_kernel(
     const int* delays,
     const cuFloatComplex* coeffs,

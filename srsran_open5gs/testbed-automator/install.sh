@@ -1,12 +1,5 @@
 #!/bin/bash
-#
-# Description: This script is designed to deploy the 5G testbed at UWaterloo.
-# Author: Niloy Saha
-# Date: 24/10/2023
-# Version: 1.0
-# Usage: Please ensure that you run this script as ROOT or with ROOT permissions.
-# Notes: This script is designed for use with Ubuntu 22.04.
-# ==============================================================================
+# Deploy the 5G testbed on Ubuntu 22.04
 
 
 run-as-root(){
@@ -46,14 +39,14 @@ cecho(){
 }
 
 
-# Disable Swap
+# Disable swap
 disable-swap() {
     cecho "GREEN" "Disabling swap ..."
     if [ -n "$(swapon -s)" ]; then
-        # Swap is enabled, disable it
+        # Disable active swap
         sudo swapoff -a
 
-        # Comment out the swap entry in /etc/fstab to disable it permanently
+        # Disable swap permanently
         sudo sed -i '/swap/ s/^/#/' /etc/fstab
 
         echo "Swap has been disabled and commented out in /etc/fstab."
@@ -68,22 +61,20 @@ disable-firewall() {
 }
 
 # Install containerd as Kubernetes CRI
-# Based on https://docs.docker.com/engine/install/ubuntu/
-# Fixme: If containerd is not running with proper settings, it just checks if containerd is there and exits.
 install-containerd() {
   if [ -x "$(command -v containerd)" ]
   then
           cecho "YELLOW" "Containerd is already installed."
   else
           cecho "GREEN" "Installing containerd ..."
-          # Add Docker's official GPG key:
+          # Add Docker GPG key
           sudo apt-get update
           sudo apt-get install -y ca-certificates curl gnupg
           sudo install -m 0755 -d /etc/apt/keyrings
           curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
           sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
-          # Add the repository to Apt sources:
+          # Add Docker Apt source
           echo \
             "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
             "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
@@ -106,11 +97,10 @@ install-containerd() {
   fi
 }
 
-# Setup K8s Networking
-# Based on https://kubernetes.io/docs/setup/production-environment/container-runtimes/#forwarding-ipv4-and-letting-iptables-see-bridged-traffic
+# Configure Kubernetes networking
 setup-k8s-networking() {
   cecho "GREEN" "Setting up Kubernetes networking ..."
-  # Load required kernel modules
+  # Load kernel modules
   cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
 overlay
 br_netfilter
@@ -119,14 +109,14 @@ EOF
   sudo modprobe overlay
   sudo modprobe br_netfilter
 
-  # Configure sysctl parameters for Kubernetes
+  # Configure Kubernetes sysctls
   cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
 net.bridge.bridge-nf-call-iptables = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward = 1
 EOF
 
-  # Apply sysctl parameters without reboot
+  # Apply sysctls without reboot
   sudo sysctl --system > /dev/null
 
 }
@@ -138,10 +128,10 @@ install-k8s() {
   else
     cecho "GREEN" "Installing Kubernetes components (kubectl, kubeadm, kubelet) ..."
     sudo apt-get update
-    # apt-transport-https may be a dummy package; if so, you can skip that package
+    # apt-transport-https may be a dummy package
     sudo apt-get install -y apt-transport-https ca-certificates curl gpg
     curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-    # This overwrites any existing configuration in /etc/apt/sources.list.d/kubernetes.list
+    # Overwrite Kubernetes Apt source
     echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
 
     sudo apt-get update

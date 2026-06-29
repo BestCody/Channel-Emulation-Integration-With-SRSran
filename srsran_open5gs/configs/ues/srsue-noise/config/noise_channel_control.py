@@ -4,8 +4,7 @@ from channel_control import ChannelControlServer
 
 
 class NoiseChannelControlServer(ChannelControlServer):
-    # Noise is carried in the CIR stream (sigma); this server only
-    # exposes signal power so a sweep can solve sigma for a target SNR.
+    # CIR-stream noise exposes signal power for sweeps
     def __init__(
         self,
         bind_endpoint,

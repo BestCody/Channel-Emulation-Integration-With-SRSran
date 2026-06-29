@@ -76,7 +76,7 @@ def median_signal(samples, direction):
 
 
 def signal_calibration(client, duration, interval):
-    # Measure signal power with noise off.
+        # Measure signal power with noise off
     stream_noise(client, "both", 0.0)
     time.sleep(0.2)
     samples = collect_signal(client, duration, interval)

@@ -11,8 +11,7 @@ RUN apt-get update \
         gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# CUDA toolkit; the dense engine is GPU-only (sm_86, A40).
-# Adjust ubuntu2004 to match the base image's release if needed.
+# CUDA toolkit for the A40 dense engine
 RUN wget -qO /tmp/cuda-keyring.deb \
         https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb \
     && dpkg -i /tmp/cuda-keyring.deb \
@@ -28,7 +27,7 @@ RUN test "$(gnuradio-config-info --version)" = "3.8.1.0" \
 
 COPY gr-sionna-channel /tmp/gr-sionna-channel
 
-# qa needs a GPU; run it on the host, not in docker build.
+# GPU QA runs on the host
 RUN cmake \
         -S /tmp/gr-sionna-channel \
         -B /tmp/gr-sionna-channel/build \
@@ -44,7 +43,7 @@ USER root
 
 COPY --from=builder /usr/local/ /usr/local/
 
-# CUDA runtime came with /usr/local/cuda; make its libs linkable.
+# Link CUDA runtime libraries
 RUN echo "/usr/local/cuda/lib64" > /etc/ld.so.conf.d/cuda.conf \
     && ldconfig \
     && python3 -c \

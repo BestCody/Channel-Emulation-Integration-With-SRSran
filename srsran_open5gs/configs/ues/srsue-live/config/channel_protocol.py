@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 
 PROTOCOL_VERSION = 1
-# Dense CIR: caps track the engine ring buffer, not 48/255.
+# Dense CIR caps track the engine ring buffer
 MAX_CHANNEL_LEN = 1024
 MAX_TAPS = MAX_CHANNEL_LEN
 MAX_DELAY = MAX_CHANNEL_LEN - 1
@@ -15,7 +15,7 @@ MAX_MESSAGE_BYTES = 1024 * 1024
 NOISE_SIGMA_MAX = 512.0
 VALID_DIRECTIONS = {"both", "downlink", "uplink"}
 
-# Binary CIR stream frame; applied latest-wins, no activation.
+# Latest CIR stream frame wins
 _FRAME_MAGIC = b"SCIR"
 _FRAME_HEADER = struct.Struct("<4sBBBBQQdI")
 _FRAME_TAP = struct.Struct("<Idd")

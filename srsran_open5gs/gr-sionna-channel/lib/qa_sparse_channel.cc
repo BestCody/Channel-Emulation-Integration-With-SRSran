@@ -102,7 +102,7 @@ int main()
             require_close(value, gr_complex(0.5F, 0.0F));
         }
 
-        // history carries across a streamed CIR change (echo at delay 3)
+        // History carries across streamed CIR changes
         sparse_channel_cc_impl history(
             {gr_complex(1.0F, 0.0F)}, {0}, 0);
         run_chunk(

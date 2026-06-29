@@ -1,45 +1,44 @@
-# Example srsRAN gNB config: ZMQ RF, 10 MHz FDD cell.
-#   sudo ./gnb -c gnb_zmq.yaml
+# srsRAN gNB ZMQ RF config
 
 amf:
-  addr: ${SRSRAN_AMF_N3_ADDR}        # The address or hostname of the AMF.
-  bind_addr: ${SRSRAN_GNB_N3_BIND_ADDR} # A local IP that the gNB binds to for traffic from the AMF.
+  addr: ${SRSRAN_AMF_N3_ADDR}        # AMF address
+  bind_addr: ${SRSRAN_GNB_N3_BIND_ADDR} # gNB bind address
 
 ru_sdr:
-  device_driver: zmq                # The RF driver name.
-  device_args: tx_port=${SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT},rx_port=${SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT},base_srate=23.04e6 # Optionally pass arguments to the selected RF driver.
-  srate: 23.04                      # RF sample rate might need to be adjusted according to selected bandwidth.
-  tx_gain: 75                       # Transmit gain of the RF might need to adjusted to the given situation.
-  rx_gain: 75                       # Receive gain of the RF might need to adjusted to the given situation.
+  device_driver: zmq                # RF driver
+  device_args: tx_port=${SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT},rx_port=${SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT},base_srate=23.04e6 # ZMQ RF endpoints
+  srate: 23.04                      # RF sample rate
+  tx_gain: 75                       # RF transmit gain
+  rx_gain: 75                       # RF receive gain
 
 cell_cfg:
-  dl_arfcn: 368500                  # ARFCN of the downlink carrier (center frequency).
-  band: 3                           # The NR band.
-  channel_bandwidth_MHz: 20         # Bandwith in MHz. Number of PRBs will be automatically derived.
-  common_scs: 15                    # Subcarrier spacing in kHz used for data.
-  plmn: "00101"                     # PLMN broadcasted by the gNB.
-  tac: 7                            # Tracking area code (needs to match the core configuration).
+  dl_arfcn: 368500                  # Downlink carrier ARFCN
+  band: 3                           # NR band
+  channel_bandwidth_MHz: 20         # Channel bandwidth in MHz
+  common_scs: 15                    # Data subcarrier spacing in kHz
+  plmn: "00101"                     # Broadcast PLMN
+  tac: 7                            # Tracking area code
   pdcch:
     common:
-      ss0_index: 0                  # Set search space zero index to match srsUE capabilities
-      coreset0_index: 12            # Set search CORESET Zero index to match srsUE capabilities
+      ss0_index: 0                  # srsUE search-space zero index
+      coreset0_index: 12            # srsUE CORESET zero index
     dedicated:
-      ss2_type: common              # Search Space type, has to be set to common
-      dci_format_0_1_and_1_1: false # Set correct DCI format (fallback)
+      ss2_type: common              # Search-space type
+      dci_format_0_1_and_1_1: false # Fallback DCI format
   prach:
-    prach_config_index: 1           # Sets PRACH config to match what is expected by srsUE
-    total_nof_ra_preambles: 63      # Sets number of available PRACH preambles
+    prach_config_index: 1           # srsUE PRACH config
+    total_nof_ra_preambles: 63      # Available PRACH preambles
 
 # log:
-#   filename: /var/log/gnb.log            # Path of the log file.
-#   all_level: info                   # Logging level applied to all layers.
+#   filename: /var/log/gnb.log
+#   all_level: info
 #   hex_max_size: 0
 
 # pcap:
-#   mac_enable: false                 # Set to true to enable MAC-layer PCAPs.
-#   mac_filename: /tmp/gnb_mac.pcap   # Path where the MAC PCAP is stored.
-#   ngap_enable: false                # Set to true to enable NGAP PCAPs.
-#   ngap_filename: /tmp/gnb_ngap.pcap # Path where the NGAP PCAP is stored.
+#   mac_enable: false
+#   mac_filename: /tmp/gnb_mac.pcap
+#   ngap_enable: false
+#   ngap_filename: /tmp/gnb_ngap.pcap
 
 slicing:
   - sst: 1

@@ -1,4 +1,4 @@
-"""Repeatable research evaluation orchestration and reporting."""
+"""Repeatable research evaluation orchestration and reporting"""
 
 from .config import ConfigError, load_and_resolve_study
 

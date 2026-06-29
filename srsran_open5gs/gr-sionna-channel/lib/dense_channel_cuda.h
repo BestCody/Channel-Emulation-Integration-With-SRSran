@@ -5,12 +5,10 @@
 namespace gr {
 namespace sionna_channel {
 
-// True when a usable CUDA device is present at runtime.
+// True when a usable CUDA device is present
 bool cuda_available();
 
-// Dense FIR on the GPU: out[j] = sum_t coeff[t] * base[prefix + j - delay[t]].
-// Complex arrays are interleaved float (re, im). base must hold prefix+count
-// complex samples; out holds count complex samples.
+// Dense GPU FIR uses interleaved complex arrays
 void cuda_dense_fir(
     const int* delays,
     const float* coeffs,

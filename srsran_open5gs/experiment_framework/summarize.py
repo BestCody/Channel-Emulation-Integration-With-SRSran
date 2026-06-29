@@ -212,7 +212,7 @@ def summarize_run(run_root):
                     })
             moving = result.get("live")
             if isinstance(moving, dict) and isinstance(moving.get("records"), list):
-                # Streaming records: one row per interpolated CIR step.
+                # Interpolated CIR stream rows
                 for record in moving["records"]:
                     moving_positions.append({
                         "condition_id": condition_id,
@@ -222,7 +222,7 @@ def summarize_run(run_root):
                         "tap_count": record.get("tap_count"),
                     })
             for level in result.get("levels", []):
-                # Open-loop noise: record the sigma applied from the frozen plan.
+                # Record frozen-plan noise sigma
                 frozen = level.get("apply", {}).get("frozen_level", {})
                 noise_levels.append({
                     "condition_id": condition_id,

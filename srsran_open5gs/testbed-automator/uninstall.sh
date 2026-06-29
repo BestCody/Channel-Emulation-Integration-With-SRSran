@@ -1,13 +1,5 @@
 #!/bin/bash
-#
-# Description: This script is designed to uninstall the 5G testbed at UWaterloo
-# deployed using install.sh
-# Author: Niloy Saha
-# Date: 27/1/2024
-# Version: 1.0
-# Usage: Please ensure that you run this script as ROOT or with ROOT permissions.
-# Notes: This script is designed for use with Ubuntu 22.04.
-# ==============================================================================
+# Uninstall the Ubuntu 22.04 5G testbed
 
 run-as-root(){
   if [ "$EUID" -ne 0 ]

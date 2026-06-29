@@ -22,7 +22,7 @@ the removed names remain.
 |---|---|---|
 | `activation_lead_ms` | 100.0 | Drove `--activation-lead-ms`; the sample-accurate activation/transaction layer was deleted in the rewrite. Stationary controller no longer accepts the flag. |
 | `activation_timeout_seconds` | 8.0 | Drove `--activation-timeout` (waited for an activation ack). No transaction layer to ack. |
-| `movement_lead_ms` | 250.0 | Drove `--movement-lead-ms` (scheduling lead for sample-accurate trajectory activation). The moving controller now streams interpolated CIRs in order — no lead. |
+| `movement_lead_ms` | 250.0 | Drove `--movement-lead-ms` (scheduling lead for sample-accurate trajectory activation). The moving controller now streams interpolated CIRs in order - no lead. |
 | `late_margin_ms` | 10.0 | Drove `--late-margin-ms` (lateness tolerance for `activate_at_sample`). No activation timestamps exist anymore. |
 | `noise_measurement_duration_seconds` | 2.0 | Drove the per-level `measure` subcommand. Noise is now open-loop (analytic sigma); there is no `measure` subcommand. |
 | `noise_measurement_interval_seconds` | 0.05 | Same as above. |
@@ -45,7 +45,7 @@ The `scene` block is untouched and still drives `runner._placement_args`:
 > `samples_per_src`, `synthetic_array`, `seed`, propagation toggles) are
 > in `channel_emulation/scenes/default_scene.json` and were not modified.
 
-### `channel` block — still in use
+### `channel` block - still in use
 
 - `continuous_ping_interval_seconds`, `continuous_ping_start_sleep_seconds`
 - `control_endpoint`
@@ -62,7 +62,7 @@ The `scene` block is untouched and still drives `runner._placement_args`:
 - `stationary_dry_timeout_seconds`, `stationary_live_timeout_seconds`,
   `stationary_repeats`
 
-### All other top-level blocks — kept unchanged
+### All other top-level blocks - kept unchanged
 
 `host_python`, `kubernetes`, `logs`, `monitoring` (incl. `enable_gpu`),
 `radio`, `result_root`, `results_must_be_outside_repo`,
@@ -77,7 +77,7 @@ The `scene` block is untouched and still drives `runner._placement_args`:
   (kept `--final-hold-seconds`).
 - Noise `plan` call: dropped `--noise-calibration` and the
   `condition["noise_calibration_resolved"]` lookup (a guaranteed
-  `KeyError` — `config.py` stopped resolving that artifact in the rewrite).
+  `KeyError` - `config.py` stopped resolving that artifact in the rewrite).
 - Noise per-level loop: replaced the dead `measure` subcommand with a
   `status` snapshot (signal power + channel liveness); the level-result
   key `measurement` became `status`.
@@ -107,7 +107,7 @@ The `scene` block is untouched and still drives `runner._placement_args`:
 ## Still source-limited (not a summarize bug)
 
 The streaming moving controller records only `{index, alpha, tap_count}`
-per step — it no longer logs per-step UE position, Sionna solve time, or
+per step - it no longer logs per-step UE position, Sionna solve time, or
 unwrapped phase. So position-vs-phase analysis and moving solve timing
 are gone at the **source**. Restoring them is a moving-controller change
 (re-add those fields to each record), not a summarize change. Say the

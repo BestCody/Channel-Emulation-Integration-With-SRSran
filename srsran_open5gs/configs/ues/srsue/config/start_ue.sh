@@ -1,4 +1,4 @@
-## Starts srsUE; argument is the UE number.
+## Start srsUE with the given UE number
 
 python3 /srsran/config/generate_ue_conf.py $1 /tmp/
 ip netns add ue$1

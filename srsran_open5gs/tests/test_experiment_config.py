@@ -54,14 +54,14 @@ class ExperimentConfigTests(unittest.TestCase):
     def test_propagation_effects_default_to_false(self):
         scene = {"solver": {"specular_reflection": True, "los": True, "max_depth": 3}}
         merged = apply_propagation(scene, {"diffraction": True})
-        # the condition is authoritative: only the effects it names are on
+        # The condition controls enabled effects
         self.assertTrue(merged["solver"]["diffraction"])
-        # effects the condition omits resolve to False even if the scene set them
+        # Omitted effects resolve to False
         self.assertFalse(merged["solver"]["specular_reflection"])
         self.assertFalse(merged["solver"]["los"])
-        # non-effect solver tuning is preserved
+        # Solver tuning is preserved
         self.assertEqual(merged["solver"]["max_depth"], 3)
-        # original scene is not mutated
+        # Original scene is not mutated
         self.assertTrue(scene["solver"]["specular_reflection"])
 
     def _assert_condition_rejected(self, mutate, message, condition_id="static-reflections-on"):

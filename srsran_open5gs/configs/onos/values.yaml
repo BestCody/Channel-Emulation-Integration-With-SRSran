@@ -44,8 +44,7 @@ resources:
 
 individualOpenFlowNodePorts: true
 
-# Adds an additional nodeport to allow profiler connection.
-# When false, profiler can still connect through proxy/port-forward
+# Profiler can use nodePort, proxy, or port-forward
 profiler:
   exposeNodePort: false
 
@@ -77,8 +76,7 @@ ports:
 app_label: onos-classic
 
 
-# onos configuration
-# used in the job "onos-config-loader"
+# ONOS config loader settings
 config:
   reconcile_mode: true
   reconcile_interval: 30s
@@ -88,13 +86,13 @@ config:
     tag: 0.1.0
     pullPolicy: "IfNotPresent"
   service_account_name: onos-config-loader
-  # NOTE that these values won't change the configuration in the ONOS container, they are only used in the script that loads the config
+  # Loader-only settings
   username: karaf
   password: karaf
-  # netcfg is a JSON object that will be sent via POST to /onos/v1/network/configuration/
+  # netcfg is posted to /onos/v1/network/configuration
   #netcfg: >
   #  {}
-  # componentConfig is a map containing "component-name": "json config" that will be iterated over and sent via POST to /onos/v1/configuration/<component-name>/
+  # componentConfig posts JSON by component name
   # componentConfig:
   #   "org.onosproject.provider.lldp.impl.LldpLinkProvider": >
   #     {

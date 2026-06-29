@@ -12,7 +12,7 @@ fi
 # Display the PID
 echo "PID of /srsran/gnb: $pid"
 
-# Get the cgroup information for the process and remove the "0::" prefix
+# Read cgroup info and remove the 0:: prefix
 cgroup_info=$(cat /proc/$pid/cgroup | sed 's/^0:://')
 
 # Check if we successfully got the cgroup info

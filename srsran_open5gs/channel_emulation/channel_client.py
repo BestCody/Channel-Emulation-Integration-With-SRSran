@@ -42,7 +42,7 @@ class ChannelClient:
         self.stream_socket.connect(self.stream_endpoint)
 
     def stream(self, message):
-        # Fire-and-forget CIR frame; no reply.
+        # Fire-and-forget CIR frame, no reply
         self.stream_socket.send(encode_message(message))
 
     def close(self):
