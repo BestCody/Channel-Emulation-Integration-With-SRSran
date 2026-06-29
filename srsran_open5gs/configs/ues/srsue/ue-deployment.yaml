@@ -49,6 +49,12 @@ spec:
               value: "false"
             - name: PATH
               value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/srsran/config"
+            - name: SRSRAN_GNB_ZMQ_ADDR
+              value: "10.10.3.231"
+            - name: SRSRAN_UE_ZMQ_ADDR
+              value: "10.10.3.232"
+            - name: SRSRAN_ZMQ_INTERFACE
+              value: "n3"
           volumeMounts:
             - mountPath: /srsran/config
               name: ue-volume
@@ -70,6 +76,8 @@ spec:
             items:
               - key: ue0.conf
                 path: ue0.conf
+              - key: radio_endpoints.py
+                path: radio_endpoints.py
               - key: multi_ue_scenario.py
                 path: multi_ue_scenario.py
               - key: generate_ue_conf.py

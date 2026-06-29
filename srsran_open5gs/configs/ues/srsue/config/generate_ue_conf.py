@@ -1,6 +1,10 @@
 import argparse
 import os
 
+from radio_endpoints import ue_downlink_endpoint
+from radio_endpoints import ue_uplink_endpoint
+
+
 def generate_ue_config(ue_number, output_directory):
     # Template for the configuration
     config_template = """
@@ -62,8 +66,8 @@ enable = false
 
     # Formatting the configuration with dynamic values
     config = config_template.format(
-        tx_port=f"tcp://10.10.3.232:{2100 + ue_number}",
-        rx_port=f"tcp://10.10.3.232:{2200 + ue_number}",
+        tx_port=ue_uplink_endpoint(ue_number),
+        rx_port=ue_downlink_endpoint(ue_number),
         log_file=os.path.join(output_directory, f"ue{ue_number}.log"),
         imsi=f"0010100000000{ue_number:02d}",
         netns=f"ue{ue_number}"

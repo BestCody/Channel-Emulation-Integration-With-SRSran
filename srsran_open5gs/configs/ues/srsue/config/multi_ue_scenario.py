@@ -15,6 +15,11 @@ import signal
 from argparse import ArgumentParser
 from gnuradio import zeromq
 
+from radio_endpoints import gnb_downlink_endpoint
+from radio_endpoints import gnb_uplink_endpoint
+from radio_endpoints import ue_downlink_endpoint
+from radio_endpoints import ue_uplink_endpoint
+
 
 class multi_ue_scenario(gr.top_block):
     def __init__(self, num_ues):
@@ -31,8 +36,22 @@ class multi_ue_scenario(gr.top_block):
         ##################################################
         # Base Blocks (Always included)
         ##################################################
-        self.zeromq_req_source_0 = zeromq.req_source(gr.sizeof_gr_complex, 1, 'tcp://10.10.3.231:2000', zmq_timeout, False, zmq_hwm)
-        self.zeromq_rep_sink_0_1 = zeromq.rep_sink(gr.sizeof_gr_complex, 1, 'tcp://10.10.3.232:2001', zmq_timeout, False, zmq_hwm)
+        self.zeromq_req_source_0 = zeromq.req_source(
+            gr.sizeof_gr_complex,
+            1,
+            gnb_downlink_endpoint(),
+            zmq_timeout,
+            False,
+            zmq_hwm,
+        )
+        self.zeromq_rep_sink_0_1 = zeromq.rep_sink(
+            gr.sizeof_gr_complex,
+            1,
+            gnb_uplink_endpoint(),
+            zmq_timeout,
+            False,
+            zmq_hwm,
+        )
 
         ##################################################
         # UE-specific Blocks
@@ -44,10 +63,23 @@ class multi_ue_scenario(gr.top_block):
 
         # Create zeromq blocks dynamically for each UE
         for i in range(num_ues):
-            req_port = 2101 + i
-            rep_port = 2201 + i
-            req_source = zeromq.req_source(gr.sizeof_gr_complex, 1, f'tcp://10.10.3.232:{req_port}', zmq_timeout, False, zmq_hwm)
-            rep_sink = zeromq.rep_sink(gr.sizeof_gr_complex, 1, f'tcp://10.10.3.232:{rep_port}', zmq_timeout, False, zmq_hwm)
+            ue_number = i + 1
+            req_source = zeromq.req_source(
+                gr.sizeof_gr_complex,
+                1,
+                ue_uplink_endpoint(ue_number),
+                zmq_timeout,
+                False,
+                zmq_hwm,
+            )
+            rep_sink = zeromq.rep_sink(
+                gr.sizeof_gr_complex,
+                1,
+                ue_downlink_endpoint(ue_number),
+                zmq_timeout,
+                False,
+                zmq_hwm,
+            )
             self.zeromq_req_sources.append(req_source)
             self.zeromq_rep_sinks.append(rep_sink)
             # Connect req source to add block

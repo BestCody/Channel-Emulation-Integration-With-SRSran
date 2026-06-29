@@ -52,7 +52,16 @@ Readiness still probes the control port only. If you test manually, use both map
 kubectl port-forward -n open5gs pod/<ue-pod> 5555:5555 5556:5556
 ```
 
-## 4. Verify the fixed virtual-radio IP topology
+## 4. Verify the configured virtual-radio IP topology
 
-The flowgraph and UE config currently assume the gNB and UE ZMQ endpoints are pinned to `10.10.3.231` and `10.10.3.232`.
-Before a pilot run, confirm the Multus/static IP assignments still match those addresses and that traffic is routed through the live-channel flowgraph.
+The flowgraphs and generated radio configs now read the virtual-radio addresses from environment variables.
+The deployment defaults still match the current Multus/static IP assignments:
+
+- `SRSRAN_AMF_N3_ADDR=10.10.3.200`
+- `SRSRAN_GNB_N3_BIND_ADDR=10.10.3.231`
+- `SRSRAN_GNB_ZMQ_ADDR=10.10.3.231`
+- `SRSRAN_UE_ZMQ_ADDR=10.10.3.232`
+- `SRSRAN_ZMQ_INTERFACE=n3`
+
+Before a pilot run, confirm the configured env values match the Multus annotations and that traffic is routed through the live-channel flowgraph.
+For non-default ports or explicit endpoints, use `SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT`, `SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT`, `SRSRAN_ZMQ_UE<N>_UPLINK_ENDPOINT`, or `SRSRAN_ZMQ_UE<N>_DOWNLINK_ENDPOINT`.

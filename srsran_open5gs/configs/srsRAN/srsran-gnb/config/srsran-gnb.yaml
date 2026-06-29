@@ -2,12 +2,12 @@
 #   sudo ./gnb -c gnb_zmq.yaml
 
 amf:
-  addr: 10.10.3.200                  # The address or hostname of the AMF.
-  bind_addr: 10.10.3.231             # A local IP that the gNB binds to for traffic from the AMF.
+  addr: ${SRSRAN_AMF_N3_ADDR}        # The address or hostname of the AMF.
+  bind_addr: ${SRSRAN_GNB_N3_BIND_ADDR} # A local IP that the gNB binds to for traffic from the AMF.
 
 ru_sdr:
   device_driver: zmq                # The RF driver name.
-  device_args: tx_port=tcp://10.10.3.231:2000,rx_port=tcp://10.10.3.232:2001,base_srate=23.04e6 # Optionally pass arguments to the selected RF driver.
+  device_args: tx_port=${SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT},rx_port=${SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT},base_srate=23.04e6 # Optionally pass arguments to the selected RF driver.
   srate: 23.04                      # RF sample rate might need to be adjusted according to selected bandwidth.
   tx_gain: 75                       # Transmit gain of the RF might need to adjusted to the given situation.
   rx_gain: 75                       # Receive gain of the RF might need to adjusted to the given situation.

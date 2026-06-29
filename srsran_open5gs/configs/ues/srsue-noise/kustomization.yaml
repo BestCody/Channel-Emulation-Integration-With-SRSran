@@ -8,7 +8,6 @@ configMapGenerator:
   - name: ue1-configmap
     behavior: merge
     files:
-      - config/noise_protocol.py
       - config/noise_channel_control.py
       - config/multi_ue_noise_channel.py
       - config/start_gnu_noise_channel.sh
@@ -20,11 +19,6 @@ patches:
       kind: Deployment
       name: srsran-ue1
     patch: |-
-      - op: add
-        path: /spec/template/spec/volumes/0/configMap/items/-
-        value:
-          key: noise_protocol.py
-          path: noise_protocol.py
       - op: add
         path: /spec/template/spec/volumes/0/configMap/items/-
         value:

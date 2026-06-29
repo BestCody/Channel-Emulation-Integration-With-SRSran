@@ -12,6 +12,10 @@ from sionna_channel import sparse_channel_cc
 from channel_control import ChannelControlServer
 from fixed_channel import samples_per_symbol
 from fixed_channel import validate_sample_rate
+from radio_endpoints import gnb_downlink_endpoint
+from radio_endpoints import gnb_uplink_endpoint
+from radio_endpoints import ue_downlink_endpoint
+from radio_endpoints import ue_uplink_endpoint
 
 
 class MultiUeLiveChannel(gr.top_block):
@@ -40,7 +44,7 @@ class MultiUeLiveChannel(gr.top_block):
         self.gnb_downlink_source = zeromq.req_source(
             gr.sizeof_gr_complex,
             1,
-            "tcp://10.10.3.231:2000",
+            gnb_downlink_endpoint(),
             zmq_timeout,
             False,
             zmq_hwm,
@@ -48,7 +52,7 @@ class MultiUeLiveChannel(gr.top_block):
         self.gnb_uplink_sink = zeromq.rep_sink(
             gr.sizeof_gr_complex,
             1,
-            "tcp://10.10.3.232:2001",
+            gnb_uplink_endpoint(),
             zmq_timeout,
             False,
             zmq_hwm,
@@ -63,10 +67,11 @@ class MultiUeLiveChannel(gr.top_block):
         self.ue_uplink_sources = []
         self.ue_downlink_sinks = []
         for index in range(num_ues):
+            ue_number = index + 1
             uplink_source = zeromq.req_source(
                 gr.sizeof_gr_complex,
                 1,
-                f"tcp://10.10.3.232:{2101 + index}",
+                ue_uplink_endpoint(ue_number),
                 zmq_timeout,
                 False,
                 zmq_hwm,
@@ -74,7 +79,7 @@ class MultiUeLiveChannel(gr.top_block):
             downlink_sink = zeromq.rep_sink(
                 gr.sizeof_gr_complex,
                 1,
-                f"tcp://10.10.3.232:{2201 + index}",
+                ue_downlink_endpoint(ue_number),
                 zmq_timeout,
                 False,
                 zmq_hwm,
