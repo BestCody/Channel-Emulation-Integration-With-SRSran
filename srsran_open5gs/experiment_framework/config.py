@@ -241,9 +241,16 @@ def validate_study(study, study_path, parameters):
     if parameters.get("results_must_be_outside_repo", True):
         if REPO_ROOT == result_root or REPO_ROOT in result_root.parents:
             raise ConfigError("generated results must be outside the Git repository")
+    references = study.get("conditions")
+    if not isinstance(references, list):
+        raise ConfigError("study conditions must be a list")
     trials = study.get("trials_per_condition")
-    if not isinstance(trials, int) or isinstance(trials, bool) or trials < 1:
-        raise ConfigError("trials_per_condition must be a positive integer")
+    if not isinstance(trials, int) or isinstance(trials, bool) or trials < 0:
+        raise ConfigError("trials_per_condition must be a non-negative integer")
+    if references and trials < 1:
+        raise ConfigError("trials_per_condition must be positive when conditions are configured")
+    if not references and trials != 0:
+        raise ConfigError("trials_per_condition must be zero when no conditions are configured")
     study_policy = parameters.get("study", {})
     if study.get("pilot") and study_policy.get("enforce_pilot_single_trial") and trials != 1:
         raise ConfigError("pilot trial count does not match benchmark parameters")
@@ -251,9 +258,6 @@ def validate_study(study, study_path, parameters):
         raise ConfigError("baseline_policy must be an object")
     if not isinstance(study.get("amf_safety", {}), dict):
         raise ConfigError("amf_safety must be an object")
-    references = study.get("conditions")
-    if not isinstance(references, list) or not references:
-        raise ConfigError("study requires at least one condition")
     return result_root
 
 

@@ -23,18 +23,6 @@
     "stationary_repeats": 3
   },
   "host_python": "python3",
-  "kubernetes": {
-    "amf_selector": "app=open5gs,nf=amf",
-    "baseline_overlay": "configs/ues/srsue",
-    "baseline_script": "bin/baseline.sh",
-    "gnb_container": "gnb",
-    "gnb_selector": "app=srsran,component=gnb",
-    "namespace": "open5gs",
-    "ue_config_volume": "ue-volume",
-    "ue_container": "ue",
-    "ue_deployment": "srsran-ue1",
-    "ue_selector": "app=srsran,component=ue,name=ue1"
-  },
   "logs": {
     "calibration_ping": "/tmp/evaluation-calibration-ping.log",
     "continuous_ping": "/tmp/evaluation-continuous-ping.log",

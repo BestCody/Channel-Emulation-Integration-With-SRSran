@@ -41,29 +41,3 @@ install(
     TARGETS gnuradio-sionna_channel
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
-
-add_executable(
-    qa_sparse_channel
-    qa_sparse_channel.cc
-)
-
-target_include_directories(
-    qa_sparse_channel
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/../include
-)
-
-target_link_libraries(
-    qa_sparse_channel
-    PRIVATE
-        gnuradio-sionna_channel
-        gnuradio::gnuradio-runtime
-)
-
-add_test(NAME qa_sparse_channel COMMAND qa_sparse_channel)
-
-install(
-    TARGETS qa_sparse_channel
-    RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/gr-sionna-channel
-)

@@ -70,28 +70,32 @@ class PilotRunner:
     def __init__(self, resolved_study, *, namespace=None):
         self.study = resolved_study
         self.parameters = resolved_study.get("parameters", {})
-        self.kubernetes = self.parameters.get("kubernetes", {})
         self.channel = self.parameters.get("channel", {})
         self.timeouts = self.parameters.get("timeouts", {})
-        self.namespace = namespace or self.kubernetes.get("namespace")
-        if not self.namespace:
-            raise ValueError("Kubernetes namespace is required")
+        self.namespace = namespace
         self.host_python = self.parameters.get("host_python", "python3")
         self.store = None
         self.amf = None
         self.resource_monitor = None
         self.backgrounds = []
         self.executor = CommandExecutor(cwd=REPO_ROOT, safety_check=self.check_safety)
+        self.lifecycle = None
+        self.deployment_changed = False
+        self.current_condition = None
+        self.current_trial = None
+        self._normal_shutdown = False
+
+    def configure_kubernetes(self):
+        if self.lifecycle is not None:
+            return
+        if not self.namespace:
+            raise ValueError("Kubernetes namespace is required for condition runs")
         self.lifecycle = KubernetesLifecycle(
             REPO_ROOT,
             self.namespace,
             self.executor,
             self.parameters,
         )
-        self.deployment_changed = False
-        self.current_condition = None
-        self.current_trial = None
-        self._normal_shutdown = False
 
     def check_safety(self):
         if self.amf is not None:
@@ -581,8 +585,14 @@ class PilotRunner:
             self.store = ResultStore(self.study["result_root"], self.study["study_id"])
             self.store.write_json("resolved-study.json", self.study)
             collect_provenance(self.store.root / "provenance", REPO_ROOT, self.study, self.parameters)
-            self.lifecycle.save_original(self.store.root / "provenance/original-cluster-state")
             self.preflight()
+            if not self.study["conditions"]:
+                summarize_run(self.store.root)
+                self.store.write_checksums()
+                return self.store.root
+
+            self.configure_kubernetes()
+            self.lifecycle.save_original(self.store.root / "provenance/original-cluster-state")
             interval = min(
                 condition["measurement_profile_resolved"]["values"].get("amf_interval_seconds", 0.5)
                 for condition in self.study["conditions"]

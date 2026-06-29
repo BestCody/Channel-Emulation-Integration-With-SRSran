@@ -19,7 +19,7 @@ def condition_plan(condition, parameters=None):
     parameters = parameters or {}
     port_forward = _port_forward_display(parameters.get("channel", {}))
     propagation = condition.get("propagation", {})
-    effects = ", ".join(f"{key}={value}" for key, value in sorted(propagation.items())) or "scene defaults"
+    effects = ", ".join(f"{key}={value}" for key, value in sorted(propagation.items())) or "all RT effects off"
     actions = [
         "apply separate overlay",
         "confirm wrapper started no radio process",
@@ -51,6 +51,12 @@ def condition_plan(condition, parameters=None):
 
 
 def study_plan(resolved_study):
+    if not resolved_study["conditions"]:
+        return [
+            "record provenance and configured parameters",
+            "no configured condition runs; live radio is not started",
+            "write empty summary tables and checksums",
+        ]
     actions = [
         "save original UE deployment, ConfigMap, image, pull policy and replicas",
         "start one continuous AMF monitor for the complete pilot",

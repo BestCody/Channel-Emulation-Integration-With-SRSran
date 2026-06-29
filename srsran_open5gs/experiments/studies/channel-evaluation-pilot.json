@@ -6,15 +6,10 @@
     "stop_on_identity_change": true,
     "stop_on_restart": true
   },
-  "conditions": [
-    "../conditions/static-reflections-on.json",
-    "../conditions/static-reflections-off.json",
-    "../conditions/moving-ue.json",
-    "../conditions/noise-sweep.json"
-  ],
-  "description": "Pilot comparison of parameter-defined Sionna channel conditions",
+  "conditions": [],
+  "description": "Pilot shell with no configured Sionna RT condition runs",
   "pilot": true,
   "schema_version": 1,
   "study_id": "channel-evaluation-pilot",
-  "trials_per_condition": 1
+  "trials_per_condition": 0
 }

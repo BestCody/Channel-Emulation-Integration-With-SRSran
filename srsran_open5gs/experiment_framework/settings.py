@@ -50,12 +50,6 @@ def _bool(value):
 
 
 ENVIRONMENT_OVERRIDES = {
-    "SRSRAN_NAMESPACE": (("kubernetes", "namespace"), str),
-    "SRSRAN_UE_SELECTOR": (("kubernetes", "ue_selector"), str),
-    "SRSRAN_GNB_SELECTOR": (("kubernetes", "gnb_selector"), str),
-    "SRSRAN_UE_DEPLOYMENT": (("kubernetes", "ue_deployment"), str),
-    "SRSRAN_UE_CONTAINER": (("kubernetes", "ue_container"), str),
-    "SRSRAN_GNB_CONTAINER": (("kubernetes", "gnb_container"), str),
     "SRSRAN_UE_NUMBER": (("radio", "ue_number"), int),
     "SRSRAN_UE_NETNS": (("radio", "ue_netns"), str),
     "SRSRAN_GATEWAY": (("radio", "gateway"), str),

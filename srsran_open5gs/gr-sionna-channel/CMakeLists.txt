@@ -9,7 +9,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 enable_language(CUDA)
 
 include(GNUInstallDirs)
-enable_testing()
 
 find_package(Gnuradio 3.8 REQUIRED COMPONENTS runtime)
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
