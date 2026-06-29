@@ -10,25 +10,29 @@ from gnuradio import zeromq
 from sionna_channel import sparse_channel_cc
 
 from channel_control import ChannelControlServer
+from fixed_channel import samples_per_symbol
 from fixed_channel import validate_sample_rate
 
 
 class MultiUeLiveChannel(gr.top_block):
-    def __init__(self, num_ues, sample_rate, control_bind):
+    def __init__(self, num_ues, sample_rate, control_bind, scs_khz=15.0):
         gr.top_block.__init__(self, "srsRAN live sparse channel")
         if num_ues < 1:
             raise ValueError("num_ues must be at least one")
         sample_rate = validate_sample_rate(sample_rate)
+        sps = samples_per_symbol(sample_rate, scs_khz)
 
         identity_coefficients = (1.0 + 0.0j,)
         identity_delays = (0,)
         self.downlink_channel = sparse_channel_cc(
             identity_coefficients,
             identity_delays,
+            sps,
         )
         self.uplink_channel = sparse_channel_cc(
             identity_coefficients,
             identity_delays,
+            sps,
         )
 
         zmq_timeout = 100
@@ -99,7 +103,8 @@ class MultiUeLiveChannel(gr.top_block):
         )
         print(
             "Live sparse channel enabled with identity taps; "
-            "no noise, movement, Sionna, or per-symbol channels",
+            "Sionna, mobility, and noise disabled; "
+            "per-symbol CIR streaming available",
             flush=True,
         )
 
@@ -119,6 +124,7 @@ def parse_args():
     )
     parser.add_argument("-n", "--num-ues", type=int, required=True)
     parser.add_argument("--sample-rate", type=float, required=True)
+    parser.add_argument("--scs-khz", type=float, default=15.0)
     parser.add_argument(
         "--control-bind",
         default="tcp://0.0.0.0:5555",
@@ -139,6 +145,7 @@ def main():
         args.num_ues,
         args.sample_rate,
         args.control_bind,
+        args.scs_khz,
     )
     stop_event = threading.Event()
 

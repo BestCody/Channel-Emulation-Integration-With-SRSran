@@ -67,18 +67,20 @@ class MovingControllerTests(unittest.TestCase):
         taps = protocol_taps(valid_point(0))
         self.assertEqual(taps[0].coefficient, 0.25 - 0.5j)
 
-    def test_controller_source_enforces_moving_channel_requirements(self):
+    def test_controller_source_streams_interpolated_cirs(self):
         text = (
             REPO_ROOT / "channel_emulation/moving_sionna_controller.py"
         ).read_text()
-        start_confirmation = text.index("start_active, start_wait_ns")
-        epoch_creation = text.index("epoch_created_ns = time.monotonic_ns()")
-        self.assertLess(start_confirmation, epoch_creation)
-        self.assertIn("time.monotonic_ns()", text)
-        self.assertIn('record["status"] = "skipped"', text)
-        self.assertIn('"piecewise_constant": True', text)
+        self.assertIn("stream_cir", text)
+        self.assertIn("interpolate_taps", text)
+        self.assertIn("--stream-endpoint", text)
+        self.assertIn("stream_endpoint=args.stream_endpoint", text)
+        self.assertIn('"per_symbol_channels": True', text)
         self.assertIn('"noise_enabled": False', text)
-        self.assertIn('"artificial_doppler": False', text)
+        # the keyframe/transaction model is gone
+        self.assertNotIn("activate_at_sample", text)
+        self.assertNotIn("wait_for_activation", text)
+        self.assertNotIn("piecewise_constant", text)
         self.assertNotIn("noise_update", text)
 
 

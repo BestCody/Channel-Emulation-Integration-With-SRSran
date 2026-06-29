@@ -13,8 +13,7 @@
   },
   "noise": {
     "enabled": true,
-    "profile": "channel_emulation/noise_profiles/default_noise_profile.json",
-    "calibration": "channel_emulation/noise_calibration_gr381.json"
+    "profile": "channel_emulation/noise_profiles/default_noise_profile.json"
   },
   "throughput": {
     "status": "deferred",

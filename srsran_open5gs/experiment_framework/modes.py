@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
 
 
+def _port_forward_display(channel):
+    mappings = []
+    for key in ("port_forward", "port_forward_stream"):
+        value = channel.get(key)
+        if value is None or value == "":
+            continue
+        values = [value] if isinstance(value, str) else value
+        for item in values:
+            mapping = str(item)
+            if mapping and mapping not in mappings:
+                mappings.append(mapping)
+    return ", ".join(mappings) or "configured control port"
+
+
 def condition_plan(condition, parameters=None):
     parameters = parameters or {}
-    port_forward = parameters.get("channel", {}).get("port_forward", "configured control port")
+    port_forward = _port_forward_display(parameters.get("channel", {}))
     propagation = condition.get("propagation", {})
     effects = ", ".join(f"{key}={value}" for key, value in sorted(propagation.items())) or "scene defaults"
     actions = [

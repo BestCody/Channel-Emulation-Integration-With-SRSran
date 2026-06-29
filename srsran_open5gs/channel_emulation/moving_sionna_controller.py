@@ -22,14 +22,11 @@ from sionna_moving import analyze_phase_progression  # noqa: E402
 from sionna_moving import tap_changes  # noqa: E402
 from sionna_radio_config import load_radio_config  # noqa: E402
 from sionna_stationary import load_scene_config  # noqa: E402
+from sionna_taps import interpolate_taps  # noqa: E402
 from sionna_taps import taps_from_report  # noqa: E402
-from trajectory import activation_sample  # noqa: E402
 from trajectory import load_trajectory  # noqa: E402
 from trajectory import radio_motion_metrics  # noqa: E402
 from trajectory import translate_trajectory  # noqa: E402
-
-
-NO_PENDING_SEQUENCE = (1 << 64) - 1
 
 
 def write_json(path, value):
@@ -159,50 +156,6 @@ def run_dry(args, radio, trajectory, config):
         raise SystemExit(2)
 
 
-def wait_for_activation(client, sequence, timeout_seconds=3.0):
-    start_ns = time.monotonic_ns()
-    deadline_ns = start_ns + int(timeout_seconds * 1e9)
-    while time.monotonic_ns() < deadline_ns:
-        status = client.get_status()
-        if (
-            status["downlink"]["active_sequence"] == sequence
-            and status["uplink"]["active_sequence"] == sequence
-        ):
-            return status, time.monotonic_ns() - start_ns
-        time.sleep(0.005)
-    raise TimeoutError(f"sequence {sequence} did not activate")
-
-
-def schedule_result(client, report, sequence, activate_at_sample):
-    taps = protocol_taps(report)
-    message = build_update(
-        taps=taps,
-        sequence=sequence,
-        activate_at_sample=activate_at_sample,
-        direction="both",
-        client_send_ns=time.time_ns(),
-    )
-    request_start_ns = time.monotonic_ns()
-    ack = client.request(message)
-    request_end_ns = time.monotonic_ns()
-    return {
-        "sequence": sequence,
-        "tap_count": len(taps),
-        "requested_activation_sample": activate_at_sample,
-        "request_start_monotonic_ns": request_start_ns,
-        "request_end_monotonic_ns": request_end_ns,
-        "ack_rtt_ms": (request_end_ns - request_start_ns) / 1e6,
-        "ack": ack,
-    }
-
-
-def pending_present(status):
-    return (
-        status["downlink"]["pending_sequence"] is not None
-        or status["uplink"]["pending_sequence"] is not None
-    )
-
-
 def validate_dry_report(path, expected_sha, radio, trajectory):
     if expected_sha and sha256(path) != expected_sha:
         raise ValueError("dry-run checksum does not match")
@@ -219,8 +172,26 @@ def validate_dry_report(path, expected_sha, radio, trajectory):
     return report
 
 
+def stream_cir(client, taps, sequence):
+    # Fire one CIR into the stream; latest-wins, no activation.
+    message = build_update(
+        taps=taps,
+        sequence=sequence,
+        direction="both",
+        client_send_ns=time.time_ns(),
+    )
+    client.stream(message)
+
+
+def blend_to_protocol(previous_taps, current_taps, alpha):
+    return tuple(
+        ProtocolTap(tap.delay, tap.coefficient)
+        for tap in interpolate_taps(previous_taps, current_taps, alpha)
+    )
+
+
 def run_live(args, radio, trajectory, config):
-    dry = validate_dry_report(
+    validate_dry_report(
         args.dry_run_report,
         args.expected_dry_run_sha256,
         radio,
@@ -231,206 +202,68 @@ def run_live(args, radio, trajectory, config):
         carrier_hz=radio.carrier_hz,
         sample_rate=radio.sample_rate,
     )
-    client = ChannelClient(args.endpoint)
+    client = ChannelClient(args.endpoint, stream_endpoint=args.stream_endpoint)
     records = []
-    skipped = []
-    completed = []
-    consecutive_failures = 0
     try:
         config_response = client.get_config()
         if float(config_response["sample_rate"]) != radio.sample_rate:
             raise ValueError("live sample rate does not match")
 
-        # start-position channel confirmed before the epoch
-        start_result = scene.solve(trajectory.points[0])
-        before = client.get_status()
-        start_sequence = int(before["last_accepted_sequence"]) + 1
-        start_sample = max(
-            before["downlink"]["sample_count"],
-            before["uplink"]["sample_count"],
-        ) + int(round(0.100 * radio.sample_rate))
-        start_schedule = schedule_result(
-            client,
-            start_result,
-            start_sequence,
-            start_sample,
-        )
-        start_active, start_wait_ns = wait_for_activation(
-            client,
-            start_sequence,
-        )
-        start_record = {
-            **start_result,
-            "status": "starting-position-confirmed",
-            "schedule": start_schedule,
-            "activation_wait_ms": start_wait_ns / 1e6,
-            "downlink_activation_error_samples":
-                start_active["downlink"]["actual_activation_sample"]
-                - start_sample,
-            "uplink_activation_error_samples":
-                start_active["uplink"]["actual_activation_sample"]
-                - start_sample,
-            "downlink_activation_time_ns":
-                start_active["downlink"]["activation_time_ns"],
-            "uplink_activation_time_ns":
-                start_active["uplink"]["activation_time_ns"],
-        }
-        records.append(start_record)
-        completed.append(0)
+        steps = max(1, int(args.interp_steps))
+        step_sleep_s = trajectory.update_interval_ns / steps / 1e9
+        sequence = int(client.get_status()["last_accepted_sequence"]) + 1
 
-        # movement epoch starts here; targets stay fixed
+        # starting-position CIR
+        previous_taps = protocol_taps(scene.solve(trajectory.points[0]))
+        stream_cir(client, previous_taps, sequence)
+        records.append({
+            "index": 0,
+            "alpha": 1.0,
+            "tap_count": len(previous_taps),
+        })
+        sequence += 1
+
         epoch_created_ns = time.monotonic_ns()
-        epoch_status = client.get_status()
-        first_movement_sample = max(
-            epoch_status["downlink"]["sample_count"],
-            epoch_status["uplink"]["sample_count"],
-        ) + int(round(args.movement_lead_ms * radio.sample_rate / 1000.0))
-        first_movement_deadline_ns = epoch_created_ns + int(
-            args.movement_lead_ms * 1_000_000
-        )
-        margin_samples = int(round(args.late_margin_ms * radio.sample_rate / 1000.0))
-        margin_ns = int(args.late_margin_ms * 1_000_000)
-
-        current_result = scene.solve(trajectory.points[1])
-        next_sequence = start_sequence + 1
         for index in range(1, len(trajectory.points)):
-            point = trajectory.points[index]
-            target_sample = activation_sample(
-                first_movement_sample,
-                index,
-                trajectory.update_interval_ns,
-                radio.sample_rate,
-            )
-            target_deadline_ns = first_movement_deadline_ns + (
-                index - 1
-            ) * trajectory.update_interval_ns
-            record = {
-                **current_result,
-                "target_activation_monotonic_ns": target_deadline_ns,
-                "target_activation_sample": target_sample,
-            }
-            status = client.get_status()
-            current_sample = max(
-                status["downlink"]["sample_count"],
-                status["uplink"]["sample_count"],
-            )
-            reason = None
-            if pending_present(status):
-                reason = "previous update is still pending"
-            elif not current_result["conversion"]["safe_to_send"]:
-                reason = "invalid Sionna channel"
-            elif current_result["calculation_end_monotonic_ns"] > (
-                target_deadline_ns - margin_ns
-            ):
-                reason = "calculation finished late"
-            elif time.monotonic_ns() > target_deadline_ns - margin_ns:
-                reason = "position missed monotonic deadline"
-            elif target_sample - current_sample < margin_samples:
-                reason = "position missed sample deadline"
+            current_taps = protocol_taps(scene.solve(trajectory.points[index]))
+            # stream interpolated CIRs across the trajectory interval
+            for step in range(1, steps + 1):
+                alpha = step / steps
+                blended = blend_to_protocol(
+                    previous_taps, current_taps, alpha
+                )
+                stream_cir(client, blended, sequence)
+                records.append({
+                    "index": index,
+                    "alpha": alpha,
+                    "tap_count": len(blended),
+                })
+                sequence += 1
+                time.sleep(step_sleep_s)
+            previous_taps = current_taps
 
-            scheduled = False
-            if reason is None:
-                try:
-                    schedule = schedule_result(
-                        client,
-                        current_result,
-                        next_sequence,
-                        target_sample,
-                    )
-                    record["schedule"] = schedule
-                    record["status"] = "scheduled"
-                    scheduled = True
-                    sequence = next_sequence
-                    next_sequence += 1
-                except Exception as error:
-                    reason = f"schedule failed: {error}"
-
-            # precompute next channel while this one runs
-            next_result = None
-            if index + 1 < len(trajectory.points):
-                try:
-                    next_result = scene.solve(trajectory.points[index + 1])
-                except Exception as error:
-                    next_result = {
-                        "index": index + 1,
-                        "trajectory_time_ns": trajectory.points[index + 1].time_ns,
-                        "position": list(trajectory.points[index + 1].position),
-                        "velocity": list(trajectory.points[index + 1].velocity),
-                        "speed_mps": trajectory.points[index + 1].speed_mps,
-                        "calculation_start_monotonic_ns": time.monotonic_ns(),
-                        "calculation_end_monotonic_ns": time.monotonic_ns(),
-                        "timing_ms": {"position_update": 0.0, "solve": 0.0, "cir_extraction": 0.0, "conversion": 0.0, "total": 0.0},
-                        "conversion": {"safe_to_send": False, "errors": [str(error)], "original_paths": [], "retained_taps": []},
-                    }
-
-            if scheduled:
-                try:
-                    active, wait_ns = wait_for_activation(client, sequence)
-                    record["status"] = "activated"
-                    record["activation_wait_ms"] = wait_ns / 1e6
-                    record["downlink_activation_error_samples"] = (
-                        active["downlink"]["actual_activation_sample"]
-                        - target_sample
-                    )
-                    record["uplink_activation_error_samples"] = (
-                        active["uplink"]["actual_activation_sample"]
-                        - target_sample
-                    )
-                    record["downlink_activation_time_ns"] = active["downlink"]["activation_time_ns"]
-                    record["uplink_activation_time_ns"] = active["uplink"]["activation_time_ns"]
-                    completed.append(index)
-                    consecutive_failures = 0
-                except Exception as error:
-                    reason = f"activation failed: {error}"
-
-            if reason is not None:
-                record["status"] = "skipped"
-                record["skip_reason"] = reason
-                skipped.append(index)
-                consecutive_failures += 1
-            records.append(record)
-            if consecutive_failures >= 3:
-                break
-            current_result = next_result
-
-        hold_start_ns = time.monotonic_ns()
         time.sleep(args.final_hold_seconds)
         final_status = client.get_status()
-        phase = analyze_phase_progression(
-            [record for record in records if "conversion" in record],
-            radio.carrier_hz,
-        )
-        for previous, current in zip([None] + records[:-1], records):
-            current["changes"] = tap_changes(previous, current)
         result = {
             "schema_version": 1,
-            "mode": "live-moving-ue-channel",
+            "mode": "live-moving-ue-channel-stream",
             "dry_run_report": str(args.dry_run_report),
             "dry_run_sha256": sha256(args.dry_run_report),
-            "starting_position_confirmed_before_epoch": True,
-            "epoch_created_monotonic_ns": epoch_created_ns,
-            "first_movement_activation_monotonic_ns": first_movement_deadline_ns,
-            "first_movement_activation_sample": first_movement_sample,
             "update_interval_ns": trajectory.update_interval_ns,
-            "piecewise_constant": True,
+            "interp_steps": steps,
+            "per_symbol_channels": True,
             "noise_enabled": False,
-            "artificial_doppler": False,
-            "completed_positions": completed,
-            "skipped_positions": skipped,
+            "streamed_updates": len(records),
+            "epoch_created_monotonic_ns": epoch_created_ns,
             "records": records,
-            "phase_progression": phase,
-            "final_hold_start_monotonic_ns": hold_start_ns,
             "final_status": final_status,
         }
         write_json(args.output, result)
         print(json.dumps({
             "output": args.output,
-            "completed_positions": completed,
-            "skipped_positions": skipped,
-            "final_active_sequences": [
-                final_status["downlink"]["active_sequence"],
-                final_status["uplink"]["active_sequence"],
-            ],
+            "streamed_updates": len(records),
+            "final_accepted_sequence":
+                final_status["last_accepted_sequence"],
         }, sort_keys=True), flush=True)
     finally:
         client.close()
@@ -464,8 +297,8 @@ def parse_args():
     parser.add_argument("--placement-seed", type=int)
     parser.add_argument("--placement-min-distance", type=float)
     parser.add_argument("--endpoint", default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"))
-    parser.add_argument("--movement-lead-ms", type=float, default=250.0)
-    parser.add_argument("--late-margin-ms", type=float, default=10.0)
+    parser.add_argument("--stream-endpoint", default=os.environ.get("CHANNEL_STREAM_ENDPOINT", "tcp://127.0.0.1:5556"))
+    parser.add_argument("--interp-steps", type=int, default=8)
     parser.add_argument("--final-hold-seconds", type=float, default=5.0)
     args = parser.parse_args()
     if args.live and not args.dry_run_report:
@@ -501,6 +334,7 @@ def main():
         run_dry(args, radio, trajectory, config)
     else:
         run_live(args, radio, trajectory, config)
+
 
 if __name__ == "__main__":
     main()

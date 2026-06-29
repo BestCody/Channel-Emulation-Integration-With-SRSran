@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# CUDA is required: the dense engine runs only on the GPU.
+enable_language(CUDA)
+
 include(GNUInstallDirs)
 enable_testing()
 

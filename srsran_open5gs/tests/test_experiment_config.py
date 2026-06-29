@@ -45,10 +45,10 @@ class ExperimentConfigTests(unittest.TestCase):
             "unknown propagation keys",
         )
 
-    def test_noise_sweep_requires_profile_and_calibration(self):
+    def test_noise_sweep_requires_profile(self):
         self._assert_condition_rejected(
             lambda c: c.update({"noise": {"enabled": True}}),
-            "noise.profile and noise.calibration",
+            "noise.profile",
         )
 
     def test_propagation_effects_default_to_false(self):
@@ -137,6 +137,19 @@ class ExperimentConfigTests(unittest.TestCase):
             path.write_text(json.dumps(study))
             resolved = load_and_resolve_study(path)
             self.assertEqual(resolved["trials_per_condition"], 5)
+
+    def test_channel_stream_defaults_are_resolved(self):
+        resolved = load_and_resolve_study(PILOT)
+        channel = resolved["parameters"]["channel"]
+        self.assertEqual(channel["control_endpoint"], "tcp://127.0.0.1:5555")
+        self.assertEqual(channel["stream_endpoint"], "tcp://127.0.0.1:5556")
+        self.assertEqual(channel["port_forward"], "5555:5555")
+        self.assertEqual(channel["port_forward_stream"], "5556:5556")
+        for condition in resolved["conditions"]:
+            self.assertEqual(condition["port_forward"], "5555:5555")
+            self.assertEqual(condition["port_forward_stream"], "5556:5556")
+            self.assertEqual(condition["stream_endpoint"], "tcp://127.0.0.1:5556")
+        self.assertIn("5555:5555, 5556:5556", json.dumps(study_plan(resolved)))
 
     def test_plan_has_no_per_trial_complete_baseline(self):
         resolved = load_and_resolve_study(PILOT)

@@ -121,6 +121,17 @@ def validate_sample_rate(sample_rate):
     return sample_rate
 
 
+def samples_per_symbol(sample_rate, scs_khz=15.0):
+    # Average OFDM symbol length in samples for the numerology.
+    sample_rate = validate_sample_rate(sample_rate)
+    scs_khz = float(scs_khz)
+    if not math.isfinite(scs_khz) or scs_khz < 15.0:
+        raise ValueError("scs_khz must be a numerology >= 15")
+    mu = round(math.log2(scs_khz / 15.0))
+    symbols_per_second = 14000.0 * (2 ** mu)
+    return max(1, int(round(sample_rate / symbols_per_second)))
+
+
 def sample_rate_from_ue_config(path):
     parser = configparser.ConfigParser()
     loaded = parser.read(path, encoding="utf-8")

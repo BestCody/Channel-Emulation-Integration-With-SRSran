@@ -2,14 +2,26 @@
 
 import json
 import math
+import struct
 from dataclasses import dataclass
 
 
 PROTOCOL_VERSION = 1
-MAX_MESSAGE_BYTES = 64 * 1024
-MAX_TAPS = 48
-MAX_DELAY = 255
+# Dense CIR: caps track the engine ring buffer, not 48/255.
+MAX_CHANNEL_LEN = 1024
+MAX_TAPS = MAX_CHANNEL_LEN
+MAX_DELAY = MAX_CHANNEL_LEN - 1
+MAX_MESSAGE_BYTES = 1024 * 1024
+NOISE_SIGMA_MAX = 512.0
 VALID_DIRECTIONS = {"both", "downlink", "uplink"}
+
+# Binary CIR stream frame; applied latest-wins, no activation.
+_FRAME_MAGIC = b"SCIR"
+_FRAME_HEADER = struct.Struct("<4sBBBBQQdI")
+_FRAME_TAP = struct.Struct("<Idd")
+_MSG_CHANNEL_UPDATE = 1
+_DIRECTION_CODES = {"both": 0, "downlink": 1, "uplink": 2}
+_DIRECTION_NAMES = {code: name for name, code in _DIRECTION_CODES.items()}
 
 
 @dataclass(frozen=True)
@@ -22,15 +34,24 @@ class Tap:
 class ChannelUpdate:
     sequence: int
     direction: str
-    activate_at_sample: int
     taps: tuple
     client_send_ns: int
+    noise_sigma: float
 
 
 def strict_integer(value, field):
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{field} must be an integer")
     return value
+
+
+def strict_noise_sigma(value):
+    sigma = float(value)
+    if not math.isfinite(sigma):
+        raise ValueError("noise_sigma must be finite")
+    if sigma < 0.0 or sigma > NOISE_SIGMA_MAX:
+        raise ValueError(f"noise_sigma must be in 0..{NOISE_SIGMA_MAX}")
+    return sigma
 
 
 def validate_taps(taps):
@@ -99,27 +120,22 @@ def parse_update(message):
     direction = message.get("direction")
     if direction not in VALID_DIRECTIONS:
         raise ValueError(f"invalid direction: {direction}")
-    activate_at_sample = strict_integer(
-        message.get("activate_at_sample"),
-        "activate_at_sample",
-    )
-    if activate_at_sample < 0 or activate_at_sample > (1 << 64) - 1:
-        raise ValueError("activate_at_sample is outside uint64 range")
     client_send_ns = strict_integer(
         message.get("client_send_ns", 0),
         "client_send_ns",
     )
     if client_send_ns < 0:
         raise ValueError("client_send_ns cannot be negative")
+    noise_sigma = strict_noise_sigma(message.get("noise_sigma", 0.0))
 
     allowed = {
         "version",
         "msg_type",
         "sequence",
         "direction",
-        "activate_at_sample",
         "taps",
         "client_send_ns",
+        "noise_sigma",
     }
     unknown = set(message) - allowed
     if unknown:
@@ -128,18 +144,18 @@ def parse_update(message):
     return ChannelUpdate(
         sequence=sequence,
         direction=direction,
-        activate_at_sample=activate_at_sample,
         taps=tap_objects(message.get("taps")),
         client_send_ns=client_send_ns,
+        noise_sigma=noise_sigma,
     )
 
 
 def build_update(
     taps,
     sequence,
-    activate_at_sample,
     direction="both",
     client_send_ns=0,
+    noise_sigma=0.0,
 ):
     taps = validate_taps(tuple(taps))
     message = {
@@ -147,10 +163,7 @@ def build_update(
         "msg_type": "channel_update",
         "sequence": strict_integer(sequence, "sequence"),
         "direction": direction,
-        "activate_at_sample": strict_integer(
-            activate_at_sample,
-            "activate_at_sample",
-        ),
+        "noise_sigma": strict_noise_sigma(noise_sigma),
         "taps": [
             {
                 "delay": tap.delay,
@@ -165,11 +178,80 @@ def build_update(
     return message
 
 
+def _encode_update_frame(message):
+    direction = message.get("direction")
+    if direction not in _DIRECTION_CODES:
+        raise ValueError(f"invalid direction: {direction}")
+    taps = message.get("taps") or []
+    try:
+        header = _FRAME_HEADER.pack(
+            _FRAME_MAGIC,
+            PROTOCOL_VERSION,
+            _MSG_CHANNEL_UPDATE,
+            _DIRECTION_CODES[direction],
+            0,
+            int(message["sequence"]),
+            int(message.get("client_send_ns", 0)),
+            float(message.get("noise_sigma", 0.0)),
+            len(taps),
+        )
+        body = b"".join(
+            _FRAME_TAP.pack(int(tap["delay"]), float(tap["real"]), float(tap["imag"]))
+            for tap in taps
+        )
+    except (struct.error, KeyError, TypeError) as error:
+        raise ValueError(f"could not encode channel_update: {error}") from error
+    return header + body
+
+
+def _decode_update_frame(payload):
+    if len(payload) < _FRAME_HEADER.size:
+        raise ValueError("binary frame is too short")
+    (
+        magic,
+        version,
+        msg_type,
+        direction_code,
+        _flags,
+        sequence,
+        client_send_ns,
+        noise_sigma,
+        count,
+    ) = _FRAME_HEADER.unpack_from(payload)
+    if magic != _FRAME_MAGIC:
+        raise ValueError("bad frame magic")
+    if version != PROTOCOL_VERSION:
+        raise ValueError("unsupported protocol version")
+    if msg_type != _MSG_CHANNEL_UPDATE:
+        raise ValueError("unsupported binary message type")
+    if direction_code not in _DIRECTION_NAMES:
+        raise ValueError(f"invalid direction code: {direction_code}")
+    if len(payload) != _FRAME_HEADER.size + count * _FRAME_TAP.size:
+        raise ValueError("binary frame length mismatch")
+    taps = []
+    offset = _FRAME_HEADER.size
+    for _ in range(count):
+        delay, real, imag = _FRAME_TAP.unpack_from(payload, offset)
+        taps.append({"delay": delay, "real": real, "imag": imag})
+        offset += _FRAME_TAP.size
+    return {
+        "version": version,
+        "msg_type": "channel_update",
+        "sequence": sequence,
+        "direction": _DIRECTION_NAMES[direction_code],
+        "noise_sigma": noise_sigma,
+        "taps": taps,
+        "client_send_ns": client_send_ns,
+    }
+
+
 def decode_message(payload):
     if not isinstance(payload, (bytes, bytearray)):
         raise ValueError("payload must be bytes")
     if len(payload) > MAX_MESSAGE_BYTES:
         raise ValueError("message exceeds maximum size")
+    if payload[:4] == _FRAME_MAGIC:
+        return _decode_update_frame(bytes(payload))
 
     def reject_constant(value):
         raise ValueError(f"invalid JSON constant: {value}")
@@ -184,12 +266,15 @@ def decode_message(payload):
 
 
 def encode_message(message):
-    payload = json.dumps(
-        message,
-        allow_nan=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
+    if message.get("msg_type") == "channel_update":
+        payload = _encode_update_frame(message)
+    else:
+        payload = json.dumps(
+            message,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
     if len(payload) > MAX_MESSAGE_BYTES:
         raise ValueError("message exceeds maximum size")
     return payload

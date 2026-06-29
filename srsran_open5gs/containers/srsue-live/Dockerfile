@@ -6,27 +6,38 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         liborc-0.4-dev \
         swig \
+        wget \
+        ca-certificates \
+        gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# CUDA toolkit for the GPU dense-FIR engine (sm_86, A40).
+# Adjust ubuntu2004 to match the base image's release if needed.
+RUN wget -qO /tmp/cuda-keyring.deb \
+        https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i /tmp/cuda-keyring.deb \
+    && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        cuda-nvcc-12-4 \
+        cuda-cudart-dev-12-4 \
+    && rm -rf /var/lib/apt/lists/* /tmp/cuda-keyring.deb
+ENV PATH=/usr/local/cuda/bin:${PATH}
 
 RUN test "$(gnuradio-config-info --version)" = "3.8.1.0" \
     && test "$(pkg-config --modversion gnuradio-runtime)" = "3.8.1"
 
 COPY gr-sionna-channel /tmp/gr-sionna-channel
 
+# qa (ctest + qa_sparse_channel.py) needs a GPU; run it on the host,
+# not in docker build. The build only compiles and installs.
 RUN cmake \
         -S /tmp/gr-sionna-channel \
         -B /tmp/gr-sionna-channel/build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr/local \
     && cmake --build /tmp/gr-sionna-channel/build --parallel \
-    && cd /tmp/gr-sionna-channel/build \
-    && ctest --output-on-failure \
     && cmake --install /tmp/gr-sionna-channel/build \
-    && ldconfig \
-    && cd / \
-    && PYTHONPATH=/usr/local/lib/python3.8/dist-packages \
-        python3 -c \
-        "exec(open('/tmp/gr-sionna-channel/python/qa_sparse_channel.py').read())"
+    && ldconfig
 
 FROM localhost/srsue-sparse:gr38-v1
 
@@ -34,6 +45,8 @@ USER root
 
 COPY --from=builder /usr/local/ /usr/local/
 
-RUN ldconfig \
+# CUDA runtime came with /usr/local/cuda; make its libs linkable.
+RUN echo "/usr/local/cuda/lib64" > /etc/ld.so.conf.d/cuda.conf \
+    && ldconfig \
     && python3 -c \
-        "from sionna_channel import commit_both, sparse_channel_cc; print(commit_both, sparse_channel_cc)"
+        "from sionna_channel import sparse_channel_cc; print(sparse_channel_cc)"

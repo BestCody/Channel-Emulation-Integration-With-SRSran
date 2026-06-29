@@ -38,37 +38,21 @@ class NoiseChannelOverlayTests(unittest.TestCase):
         self.assertNotIn("socket.bind", control)
         self.assertIn("NoiseChannelControlServer", flowgraph)
 
-    def test_noise_is_after_sparse_channel(self):
+    def test_no_separate_noise_stage(self):
         flowgraph = (
             OVERLAY / "config/multi_ue_noise_channel.py"
         ).read_text()
-        self.assertIn("self.downlink_noise_adder", flowgraph)
-        self.assertIn("self.uplink_noise_adder", flowgraph)
-        self.assertIn(
-            "(self.downlink_channel, 0),\n"
-            "            (self.downlink_noise_adder, 0)",
-            flowgraph,
-        )
-        self.assertIn(
-            "(self.uplink_channel, 0),\n"
-            "            (self.uplink_noise_adder, 0)",
-            flowgraph,
-        )
+        self.assertNotIn("noise_source_c", flowgraph)
+        self.assertNotIn("noise_adder", flowgraph)
+        self.assertIn("in-CIR noise", flowgraph)
 
-    def test_signal_probe_is_connected_before_noise_adder(self):
+    def test_signal_probe_on_channel_output(self):
         flowgraph = (
             OVERLAY / "config/multi_ue_noise_channel.py"
         ).read_text()
-        self.assertIn(
-            "self.downlink_channel,\n"
-            "            self.downlink_signal_probe",
-            flowgraph,
-        )
-        self.assertIn(
-            "self.uplink_channel,\n"
-            "            self.uplink_signal_probe",
-            flowgraph,
-        )
+        self.assertIn("downlink_signal_probe", flowgraph)
+        self.assertIn("uplink_signal_probe", flowgraph)
+        self.assertIn("_connect_power", flowgraph)
 
     def test_launcher_detects_sample_rate(self):
         launcher = (

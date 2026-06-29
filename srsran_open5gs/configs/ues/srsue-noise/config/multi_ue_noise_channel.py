@@ -4,51 +4,40 @@ import signal
 import threading
 from argparse import ArgumentParser
 
-from gnuradio import analog
 from gnuradio import blocks
 from gnuradio import gr
 from gnuradio import zeromq
 from sionna_channel import sparse_channel_cc
 
+from fixed_channel import samples_per_symbol
 from fixed_channel import validate_sample_rate
 from noise_channel_control import NoiseChannelControlServer
 
 
 class MultiUeNoiseChannel(gr.top_block):
-    def __init__(self, num_ues, sample_rate, control_bind):
-        gr.top_block.__init__(self, "srsRAN live sparse channel with noise")
+    def __init__(self, num_ues, sample_rate, control_bind, scs_khz=15.0):
+        gr.top_block.__init__(self, "srsRAN live channel with in-CIR noise")
         if num_ues < 1:
             raise ValueError("num_ues must be at least one")
         sample_rate = validate_sample_rate(sample_rate)
+        sps = samples_per_symbol(sample_rate, scs_khz)
 
         identity_coefficients = (1.0 + 0.0j,)
         identity_delays = (0,)
         self.downlink_channel = sparse_channel_cc(
             identity_coefficients,
             identity_delays,
+            sps,
         )
         self.uplink_channel = sparse_channel_cc(
             identity_coefficients,
             identity_delays,
+            sps,
         )
-        self.downlink_noise = analog.noise_source_c(
-            analog.GR_GAUSSIAN,
-            0.0,
-            -20260631,
-        )
-        self.uplink_noise = analog.noise_source_c(
-            analog.GR_GAUSSIAN,
-            0.0,
-            -20260632,
-        )
-        self.downlink_noise_adder = blocks.add_vcc(1)
-        self.uplink_noise_adder = blocks.add_vcc(1)
 
         power_window = max(1, int(round(sample_rate * 0.010)))
         self.downlink_signal_probe = self._power_probe(power_window)
         self.uplink_signal_probe = self._power_probe(power_window)
-        self.downlink_noise_probe = self._power_probe(power_window)
-        self.uplink_noise_probe = self._power_probe(power_window)
 
         zmq_timeout = 100
         zmq_hwm = -1
@@ -99,39 +88,18 @@ class MultiUeNoiseChannel(gr.top_block):
             self.connect((uplink_source, 0), (self.uplink_adder, index))
             self.connect((self.throttle, 0), (downlink_sink, 0))
 
+        # Noise is applied inside the channel block from the streamed
+        # CIR sigma; there is no separate noise stage.
         self.connect(
             (self.gnb_downlink_source, 0),
             (self.downlink_channel, 0),
-        )
-        self.connect(
-            (self.downlink_channel, 0),
-            (self.downlink_noise_adder, 0),
-        )
-        self.connect(
-            (self.downlink_noise, 0),
-            (self.downlink_noise_adder, 1),
-        )
-        self.connect(
-            (self.downlink_noise_adder, 0),
             (self.throttle, 0),
         )
         self.connect(
             (self.uplink_adder, 0),
             (self.uplink_channel, 0),
-        )
-        self.connect(
-            (self.uplink_channel, 0),
-            (self.uplink_noise_adder, 0),
-        )
-        self.connect(
-            (self.uplink_noise, 0),
-            (self.uplink_noise_adder, 1),
-        )
-        self.connect(
-            (self.uplink_noise_adder, 0),
             (self.gnb_uplink_sink, 0),
         )
-
         self._connect_power(
             self.downlink_channel,
             self.downlink_signal_probe,
@@ -140,36 +108,21 @@ class MultiUeNoiseChannel(gr.top_block):
             self.uplink_channel,
             self.uplink_signal_probe,
         )
-        self._connect_power(
-            self.downlink_noise,
-            self.downlink_noise_probe,
-        )
-        self._connect_power(
-            self.uplink_noise,
-            self.uplink_noise_probe,
-        )
 
         self.control_server = NoiseChannelControlServer(
             bind_endpoint=control_bind,
             downlink=self.downlink_channel,
             uplink=self.uplink_channel,
             sample_rate=sample_rate,
-            downlink_noise=self.downlink_noise,
-            uplink_noise=self.uplink_noise,
             power_readers={
                 "downlink_signal":
                     self.downlink_signal_probe["probe"].level,
                 "uplink_signal":
                     self.uplink_signal_probe["probe"].level,
-                "downlink_noise":
-                    self.downlink_noise_probe["probe"].level,
-                "uplink_noise":
-                    self.uplink_noise_probe["probe"].level,
             },
         )
         print(
-            "Noise-enabled live sparse channel with zero initial noise; "
-            "one control server on the configured endpoint",
+            "Live channel with in-CIR noise; sigma streamed per symbol",
             flush=True,
         )
 
@@ -205,10 +158,11 @@ class MultiUeNoiseChannel(gr.top_block):
 
 def parse_args():
     parser = ArgumentParser(
-        description="srsRAN live sparse channel with controlled noise"
+        description="srsRAN live channel with in-CIR noise"
     )
     parser.add_argument("-n", "--num-ues", type=int, required=True)
     parser.add_argument("--sample-rate", type=float, required=True)
+    parser.add_argument("--scs-khz", type=float, default=15.0)
     parser.add_argument(
         "--control-bind",
         default="tcp://0.0.0.0:5555",
@@ -229,6 +183,7 @@ def main():
         args.num_ues,
         args.sample_rate,
         args.control_bind,
+        args.scs_khz,
     )
     stop_event = threading.Event()
 

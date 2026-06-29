@@ -12,6 +12,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 LIVE_CONFIG = REPO_ROOT / "configs" / "ues" / "srsue-live" / "config"
 sys.path.insert(0, str(LIVE_CONFIG))
 
+from channel_protocol import MAX_DELAY  # noqa: E402
+from channel_protocol import MAX_TAPS  # noqa: E402
 from channel_protocol import attenuation_taps  # noqa: E402
 from channel_protocol import build_update  # noqa: E402
 from channel_protocol import identity_taps  # noqa: E402
@@ -34,67 +36,31 @@ def append_json_line(path, record):
         handle.write(json.dumps(record, sort_keys=True) + "\n")
 
 
-def wait_for_activation(client, sequence, timeout_seconds):
-    started = time.perf_counter_ns()
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        status = client.get_status()
-        if (
-            status["downlink"]["active_sequence"] == sequence
-            and status["uplink"]["active_sequence"] == sequence
-        ):
-            status["activation_wait_ms"] = (
-                time.perf_counter_ns() - started
-            ) / 1_000_000.0
-            return status
-        time.sleep(0.02)
-    raise TimeoutError(f"sequence {sequence} did not activate")
-
-
-def invalid_messages(sequence, activate_at_sample):
-    normal_tap = [{"delay": 0, "real": 1.0, "imag": 0.0}]
+def invalid_messages(sequence):
     return (
         (
-            "stale_sequence",
-            {
-                "version": 1,
-                "msg_type": "channel_update",
-                "sequence": sequence - 1,
-                "direction": "both",
-                "activate_at_sample": activate_at_sample,
-                "taps": normal_tap,
-                "client_send_ns": time.time_ns(),
-            },
-        ),
-        (
-            "delay_256",
+            "delay_above_max",
             {
                 "version": 1,
                 "msg_type": "channel_update",
                 "sequence": sequence,
                 "direction": "both",
-                "activate_at_sample": activate_at_sample,
                 "taps": [
-                    {"delay": 256, "real": 1.0, "imag": 0.0}
+                    {"delay": MAX_DELAY + 1, "real": 1.0, "imag": 0.0}
                 ],
                 "client_send_ns": time.time_ns(),
             },
         ),
         (
-            "forty_nine_taps",
+            "too_many_taps",
             {
                 "version": 1,
                 "msg_type": "channel_update",
                 "sequence": sequence,
                 "direction": "both",
-                "activate_at_sample": activate_at_sample,
                 "taps": [
-                    {
-                        "delay": index,
-                        "real": 0.01,
-                        "imag": 0.0,
-                    }
-                    for index in range(49)
+                    {"delay": index, "real": 0.01, "imag": 0.0}
+                    for index in range(MAX_TAPS + 1)
                 ],
                 "client_send_ns": time.time_ns(),
             },
@@ -110,10 +76,12 @@ def parse_args():
         "--endpoint",
         default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"),
     )
+    parser.add_argument(
+        "--stream-endpoint",
+        default=os.environ.get("CHANNEL_STREAM_ENDPOINT", "tcp://127.0.0.1:5556"),
+    )
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--interval", type=float, default=0.5)
-    parser.add_argument("--activation-lead-ms", type=float, default=100.0)
-    parser.add_argument("--activation-timeout", type=float, default=5.0)
     parser.add_argument("--timeout-ms", type=int, default=5000)
     parser.add_argument(
         "--metrics",
@@ -131,105 +99,69 @@ def main():
     if args.cycles < 1:
         raise ValueError("--cycles must be positive")
 
-    client = ChannelClient(args.endpoint, args.timeout_ms)
+    client = ChannelClient(
+        args.endpoint,
+        args.timeout_ms,
+        stream_endpoint=args.stream_endpoint,
+    )
     try:
         config = client.get_config()
         status = client.get_status()
         sequence = int(status["last_accepted_sequence"]) + 1
-        lead_samples = max(
-            1,
-            int(config["sample_rate"] * args.activation_lead_ms / 1000.0),
-        )
         print(f"config={config}", flush=True)
 
         for cycle in range(args.cycles):
             for profile_name, profile_factory in PROFILES:
-                before = client.get_status()
-                current_sample = max(
-                    before["downlink"]["sample_count"],
-                    before["uplink"]["sample_count"],
-                )
-                activate_at = current_sample + lead_samples
-                client_send_ns = time.time_ns()
                 message = build_update(
                     taps=profile_factory(),
                     sequence=sequence,
-                    activate_at_sample=activate_at,
                     direction="both",
-                    client_send_ns=client_send_ns,
+                    client_send_ns=time.time_ns(),
                 )
-                ack = client.request(message)
-                active = wait_for_activation(
-                    client,
-                    sequence,
-                    args.activation_timeout,
-                )
+                client.stream(message)
+                time.sleep(0.05)
+                after = client.get_status()
                 record = {
                     "cycle": cycle,
                     "profile": profile_name,
                     "sequence": sequence,
                     "tap_count": len(message["taps"]),
-                    "requested_activation_sample": activate_at,
-                    "ack": ack,
-                    "downlink": active["downlink"],
-                    "uplink": active["uplink"],
-                    "activation_wait_ms": active["activation_wait_ms"],
-                    "downlink_activation_error_samples": (
-                        active["downlink"]["actual_activation_sample"]
-                        - activate_at
-                    ),
-                    "uplink_activation_error_samples": (
-                        active["uplink"]["actual_activation_sample"]
-                        - activate_at
-                    ),
+                    "downlink": after["downlink"],
+                    "uplink": after["uplink"],
                 }
                 append_json_line(args.metrics, record)
                 print(
                     f"cycle={cycle} profile={profile_name} "
                     f"sequence={sequence} "
-                    f"rtt_ms={ack['request_rtt_ms']:.3f} "
-                    f"schedule_us={ack['schedule_us']:.3f} "
-                    f"dl_error={record['downlink_activation_error_samples']} "
-                    f"ul_error={record['uplink_activation_error_samples']}",
+                    f"dl_updates={after['downlink']['update_count']} "
+                    f"ul_updates={after['uplink']['update_count']}",
                     flush=True,
                 )
                 sequence += 1
                 time.sleep(args.interval)
 
-        final_status = client.get_status()
-        invalid_activation = max(
-            final_status["downlink"]["sample_count"],
-            final_status["uplink"]["sample_count"],
-        ) + lead_samples
-        active_before_invalid = (
-            final_status["downlink"]["active_sequence"],
-            final_status["uplink"]["active_sequence"],
+        before_invalid = client.get_status()
+        updates_before = (
+            before_invalid["downlink"]["update_count"],
+            before_invalid["uplink"]["update_count"],
         )
-        for name, message in invalid_messages(
-            sequence,
-            invalid_activation,
-        ):
-            response = client.request(message, raise_on_error=False)
+        for name, message in invalid_messages(sequence):
+            client.stream(message)
+            time.sleep(0.1)
             after = client.get_status()
+            updates_after = (
+                after["downlink"]["update_count"],
+                after["uplink"]["update_count"],
+            )
             record = {
                 "name": name,
-                "response": response,
-                "active_before": active_before_invalid,
-                "active_after": (
-                    after["downlink"]["active_sequence"],
-                    after["uplink"]["active_sequence"],
-                ),
-                "pending_after": (
-                    after["downlink"]["pending_sequence"],
-                    after["uplink"]["pending_sequence"],
-                ),
+                "updates_before": updates_before,
+                "updates_after": updates_after,
             }
             append_json_line(args.invalid_metrics, record)
-            if response.get("msg_type") != "error":
-                raise RuntimeError(f"invalid update {name} was accepted")
-            if record["active_after"] != active_before_invalid:
+            if updates_after != updates_before:
                 raise RuntimeError(f"invalid update {name} changed channel")
-            print(f"invalid={name} rejected={response['error']}", flush=True)
+            print(f"invalid={name} dropped", flush=True)
 
         print(f"final_status={client.get_status()}", flush=True)
     finally:

@@ -34,6 +34,12 @@ patches:
           containerPort: 5555
           protocol: TCP
       - op: add
+        path: /spec/template/spec/containers/0/ports/-
+        value:
+          name: channel-stream
+          containerPort: 5556
+          protocol: TCP
+      - op: add
         path: /spec/template/spec/volumes/0/configMap/items/-
         value:
           key: fixed_channel.py

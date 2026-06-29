@@ -69,6 +69,13 @@ class StationarySionnaControllerTests(unittest.TestCase):
         path.write_text('{"value":2}\n', encoding="utf-8")
         self.assertNotEqual(first, report_sha256(path))
 
+    def test_live_client_uses_stream_endpoint(self):
+        source = (
+            ROOT / "channel_emulation/stationary_sionna_controller.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--stream-endpoint", source)
+        self.assertIn("stream_endpoint=args.stream_endpoint", source)
+
     def test_sionna_import_is_lazy(self):
         source = (
             ROOT / "channel_emulation/sionna_stationary.py"

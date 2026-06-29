@@ -28,32 +28,31 @@ class LiveChannelOverlayTests(unittest.TestCase):
         self.assertNotIn("NodePort", all_text)
         self.assertNotIn("kind: Service", all_text)
         self.assertIn("containerPort: 5555", all_text)
+        self.assertIn("containerPort: 5556", all_text)
 
     def test_live_mode_excludes_future_stages(self):
         flowgraph = (
             OVERLAY / "config/multi_ue_live_channel.py"
         ).read_text().lower()
         self.assertNotIn("sionna rt", flowgraph)
-        self.assertNotIn("movement", flowgraph.replace(
-            '"no noise, movement, sionna, or per-symbol channels"', ""
-        ))
+        self.assertIn("per-symbol cir streaming available", flowgraph)
+        self.assertNotIn(
+            "no noise, movement, sionna, or per-symbol channels",
+            flowgraph,
+        )
+        self.assertNotIn("movement", flowgraph)
         self.assertNotIn("noise_source", flowgraph)
         self.assertNotIn("symbol_taps", flowgraph)
 
-    def test_commit_both_is_cpp_transaction(self):
+    def test_engine_uses_streaming_set_channel(self):
         header = BLOCK_HEADER.read_text()
         implementation = BLOCK_IMPL.read_text()
-        self.assertIn("bool commit_both", header)
-        self.assertIn("bool commit_both", implementation)
-        self.assertIn("first->d_pending_mutex", implementation)
-        self.assertIn("second->d_pending_mutex", implementation)
-        first_publish = implementation.index(
-            "downlink_impl->publish_prepared_locked"
-        )
-        second_lock = implementation.index(
-            "second_lock(second->d_pending_mutex)"
-        )
-        self.assertGreater(first_publish, second_lock)
+        self.assertIn("set_channel", header)
+        self.assertIn("set_channel", implementation)
+        # the keyframe/transaction model is gone
+        self.assertNotIn("commit_both", header)
+        self.assertNotIn("commit_both", implementation)
+        self.assertNotIn("activate_at_sample", implementation)
 
     def test_launcher_uses_detected_sample_rate(self):
         launcher = (

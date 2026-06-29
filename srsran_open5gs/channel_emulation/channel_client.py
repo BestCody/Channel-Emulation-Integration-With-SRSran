@@ -15,15 +15,18 @@ from channel_protocol import encode_message  # noqa: E402
 
 
 class ChannelClient:
-    def __init__(self, endpoint=None, timeout_ms=5000):
+    def __init__(self, endpoint=None, timeout_ms=5000, stream_endpoint=None):
         endpoint = endpoint or os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555")
+        stream_endpoint = stream_endpoint or os.environ.get("CHANNEL_STREAM_ENDPOINT", "tcp://127.0.0.1:5556")
         import zmq
 
         self.zmq = zmq
         self.endpoint = endpoint
+        self.stream_endpoint = stream_endpoint
         self.timeout_ms = timeout_ms
         self.context = zmq.Context()
         self.socket = None
+        self.stream_socket = None
         self.connect()
 
     def connect(self):
@@ -32,11 +35,23 @@ class ChannelClient:
         self.socket = self.context.socket(self.zmq.REQ)
         self.socket.linger = 0
         self.socket.connect(self.endpoint)
+        if self.stream_socket is not None:
+            self.stream_socket.close()
+        self.stream_socket = self.context.socket(self.zmq.PUSH)
+        self.stream_socket.linger = 0
+        self.stream_socket.connect(self.stream_endpoint)
+
+    def stream(self, message):
+        # Fire-and-forget CIR frame; no reply.
+        self.stream_socket.send(encode_message(message))
 
     def close(self):
         if self.socket is not None:
             self.socket.close()
             self.socket = None
+        if self.stream_socket is not None:
+            self.stream_socket.close()
+            self.stream_socket = None
         self.context.term()
 
     def request(self, message, raise_on_error=True):

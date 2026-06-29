@@ -203,78 +203,33 @@ def summarize_run(run_root):
                         })
                 live = channel.get("live")
                 if isinstance(live, dict):
-                    ack = live.get("ack", {})
                     channel_updates.append({
                         "condition_id": condition_id,
                         "trial_number": trial_number,
                         "position_index": None,
                         "sequence": live.get("sequence"),
-                        "ack_rtt_ms": ack.get("request_rtt_ms"),
-                        "schedule_us": ack.get("schedule_us"),
-                        "downlink_activation_error_samples": live.get("downlink_activation_error_samples"),
-                        "uplink_activation_error_samples": live.get("uplink_activation_error_samples"),
+                        "tap_count": live.get("tap_count"),
                     })
             moving = result.get("live")
             if isinstance(moving, dict) and isinstance(moving.get("records"), list):
-                phase_by_index = {
-                    item["index"]: item
-                    for item in moving.get("phase_progression", {}).get("records", [])
-                }
+                # Streaming records: one row per interpolated CIR step.
                 for record in moving["records"]:
-                    position = record.get("position") or [None, None, None]
-                    timing = record.get("timing_ms", {})
-                    schedule = record.get("schedule") or {}
-                    ack = schedule.get("ack", {})
-                    phase = phase_by_index.get(record.get("index"), {})
                     moving_positions.append({
                         "condition_id": condition_id,
                         "trial_number": trial_number,
                         "position_index": record.get("index"),
-                        "trajectory_time_ns": record.get("trajectory_time_ns"),
-                        "x": position[0], "y": position[1], "z": position[2],
-                        "status": record.get("status"),
-                        "skip_reason": record.get("skip_reason"),
-                        "solve_ms": timing.get("solve"),
-                        "conversion_ms": timing.get("conversion"),
-                        "path_count": len(record.get("conversion", {}).get("original_paths", [])),
-                        "tap_count": len(record.get("conversion", {}).get("retained_taps", [])),
-                        "phase_rad": phase.get("unwrapped_phase_rad"),
-                        "phase_error_rad": phase.get("phase_error_rad"),
+                        "alpha": record.get("alpha"),
+                        "tap_count": record.get("tap_count"),
                     })
-                    sionna_timings.append({
-                        "condition_id": condition_id,
-                        "trial_number": trial_number,
-                        "position_index": record.get("index"),
-                        "solve_ms": timing.get("solve"),
-                        "conversion_ms": timing.get("conversion"),
-                        "total_ms": timing.get("total"),
-                    })
-                    if schedule:
-                        channel_updates.append({
-                            "condition_id": condition_id,
-                            "trial_number": trial_number,
-                            "position_index": record.get("index"),
-                            "sequence": schedule.get("sequence"),
-                            "ack_rtt_ms": schedule.get("ack_rtt_ms"),
-                            "schedule_us": ack.get("schedule_us"),
-                            "downlink_activation_error_samples": record.get("downlink_activation_error_samples"),
-                            "uplink_activation_error_samples": record.get("uplink_activation_error_samples"),
-                        })
-                    for tap in record.get("conversion", {}).get("retained_taps", []):
-                        channel_taps.append({
-                            "condition_id": condition_id,
-                            "trial_number": trial_number,
-                            "position_index": record.get("index"),
-                            **tap,
-                        })
             for level in result.get("levels", []):
-                measurement = level.get("measurement", {})
+                # Open-loop noise: record the sigma applied from the frozen plan.
+                frozen = level.get("apply", {}).get("frozen_level", {})
                 noise_levels.append({
                     "condition_id": condition_id,
                     "trial_number": trial_number,
                     "target_snr_db": level.get("target_snr_db"),
-                    "downlink_measured_snr_db": measurement.get("downlink", {}).get("measured_snr_db"),
-                    "uplink_measured_snr_db": measurement.get("uplink", {}).get("measured_snr_db"),
+                    "downlink_applied_sigma": frozen.get("downlink", {}).get("noise_sigma"),
+                    "uplink_applied_sigma": frozen.get("uplink", {}).get("noise_sigma"),
                     "packet_loss_percent": level.get("ping", {}).get("packet_loss_percent"),
                     "sustained_attachment_loss": level.get("sustained_attachment_loss"),
                 })
@@ -328,9 +283,7 @@ def summarize_run(run_root):
     dot_plot(summary_dir / "plots/packet-loss.svg", "Packet loss by individual trial", rows, "packet_loss_percent", "Packet loss (%)")
     dot_plot(summary_dir / "plots/rtt-mean.svg", "Mean ping RTT by individual trial", rows, "rtt_mean_ms", "RTT (ms)")
     dot_plot(summary_dir / "plots/sionna-solve.svg", "Sionna solve time", sionna_timings, "solve_ms", "Solve time (ms)")
-    dot_plot(summary_dir / "plots/update-ack.svg", "Channel update acknowledgement RTT", channel_updates, "ack_rtt_ms", "ACK RTT (ms)")
     line_plot(summary_dir / "plots/noise-loss.svg", "Packet loss versus target SNR", noise_levels, "target_snr_db", "packet_loss_percent", "Target SNR (dB)", "Packet loss (%)")
-    line_plot(summary_dir / "plots/moving-phase.svg", "Sionna phase versus UE position", moving_positions, "x", "phase_rad", "UE x position (m)", "Unwrapped phase (rad)")
     dot_plot(summary_dir / "plots/cpu.svg", "CPU by individual process sample", resources, "cpu_percent", "CPU (%)")
     dot_plot(summary_dir / "plots/gpu-utilization.svg", "GPU utilization samples", gpu_samples, "gpu_utilization_percent", "GPU utilization (%)")
     line_plot(summary_dir / "plots/amf-memory.svg", "AMF memory during pilot", amf_samples, "time_ns", "memory_current", "Time (ns)", "Memory (bytes)")

@@ -109,22 +109,6 @@ def validate_saved_report(report, radio):
     return protocol_taps
 
 
-def wait_for_activation(client, sequence, timeout):
-    started = time.perf_counter_ns()
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        status = client.get_status()
-        if (
-            status["downlink"]["active_sequence"] == sequence
-            and status["uplink"]["active_sequence"] == sequence
-        ):
-            return status, (
-                time.perf_counter_ns() - started
-            ) / 1_000_000
-        time.sleep(0.02)
-    raise TimeoutError(f"sequence {sequence} did not activate")
-
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Stationary Sionna RT channel controller"
@@ -156,8 +140,7 @@ def parse_args():
     parser.add_argument("--placement-min-distance", type=float)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--endpoint", default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"))
-    parser.add_argument("--activation-lead-ms", type=float, default=100)
-    parser.add_argument("--activation-timeout", type=float, default=8)
+    parser.add_argument("--stream-endpoint", default=os.environ.get("CHANNEL_STREAM_ENDPOINT", "tcp://127.0.0.1:5556"))
     parser.add_argument("--expected-report-sha256")
     return parser.parse_args()
 
@@ -204,7 +187,7 @@ def main():
     protocol_taps = validate_saved_report(report, radio)
     print_report(report)
 
-    client = ChannelClient(args.endpoint)
+    client = ChannelClient(args.endpoint, stream_endpoint=args.stream_endpoint)
     try:
         config = client.get_config()
         if float(config["sample_rate"]) != radio.sample_rate:
@@ -213,45 +196,21 @@ def main():
             )
         before = client.get_status()
         sequence = int(before["last_accepted_sequence"]) + 1
-        current_sample = max(
-            before["downlink"]["sample_count"],
-            before["uplink"]["sample_count"],
-        )
-        activate_at = current_sample + max(
-            1,
-            int(
-                radio.sample_rate
-                * args.activation_lead_ms
-                / 1000.0
-            ),
-        )
         message = build_update(
             taps=protocol_taps,
             sequence=sequence,
-            activate_at_sample=activate_at,
             direction="both",
             client_send_ns=time.time_ns(),
         )
-        ack = client.request(message)
-        active, activation_wait_ms = wait_for_activation(
-            client,
-            sequence,
-            args.activation_timeout,
-        )
+        client.stream(message)
+        after = client.get_status()
         result = {
             "report": str(report_path),
             "report_sha256": actual_sha256,
             "sequence": sequence,
             "tap_count": len(protocol_taps),
-            "requested_activation_sample": activate_at,
-            "ack": ack,
-            "activation_wait_ms": activation_wait_ms,
-            "downlink": active["downlink"],
-            "uplink": active["uplink"],
-            "downlink_activation_error_samples":
-                active["downlink"]["actual_activation_sample"] - activate_at,
-            "uplink_activation_error_samples":
-                active["uplink"]["actual_activation_sample"] - activate_at,
+            "downlink": after["downlink"],
+            "uplink": after["uplink"],
         }
         write_json(args.output, result)
         print(json.dumps(result, sort_keys=True), flush=True)

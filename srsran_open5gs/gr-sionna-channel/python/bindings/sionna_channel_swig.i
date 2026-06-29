@@ -21,6 +21,4 @@ namespace std {
 
 %include <gnuradio/sionna_channel/sparse_channel_cc.h>
 
-%template(prepared_channel_sptr) boost::shared_ptr<gr::sionna_channel::prepared_channel>;
-
 GR_SWIG_BLOCK_MAGIC2(sionna_channel, sparse_channel_cc);

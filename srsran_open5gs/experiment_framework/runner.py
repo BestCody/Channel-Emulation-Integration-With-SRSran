@@ -26,6 +26,29 @@ from .summarize import summarize_run
 from .traffic import parse_ping
 
 
+def _port_forward_mappings(channel):
+    mappings = []
+
+    def add(value):
+        if value is None or value == "":
+            return
+        values = [value] if isinstance(value, str) else value
+        for item in values:
+            mapping = str(item)
+            if mapping and mapping not in mappings:
+                mappings.append(mapping)
+
+    add(channel.get("port_forward"))
+    add(channel.get("port_forward_stream"))
+    if not mappings:
+        raise ValueError("channel.port_forward must configure at least one port mapping")
+    return tuple(mappings)
+
+
+def _stream_endpoint(channel):
+    return channel.get("stream_endpoint", "tcp://127.0.0.1:5556")
+
+
 class StudyLock:
     def __init__(self, result_root):
         self.path = pathlib.Path(result_root) / ".evaluation.lock"
@@ -150,11 +173,18 @@ class PilotRunner:
 
     def start_port_forward(self, trial_dir):
         self.lifecycle.ue_pod = self.lifecycle.discover_ue()
-        port_forward = self.channel.get("port_forward")
+        port_forward = _port_forward_mappings(self.channel)
         host = self.channel.get("port_forward_host", "127.0.0.1")
         port = int(self.channel.get("port_forward_port", 5555))
         background = BackgroundCommand(
-            ["kubectl", "port-forward", "-n", self.namespace, f"pod/{self.lifecycle.ue_pod}", port_forward],
+            [
+                "kubectl",
+                "port-forward",
+                "-n",
+                self.namespace,
+                f"pod/{self.lifecycle.ue_pod}",
+                *port_forward,
+            ],
             REPO_ROOT,
             pathlib.Path(trial_dir) / "condition/logs/port-forward.log",
         )
@@ -247,8 +277,7 @@ class PilotRunner:
                 "--send-report", str(dry),
                 "--expected-report-sha256", digest,
                 "--endpoint", self.channel["control_endpoint"],
-                "--activation-lead-ms", str(self.channel.get("activation_lead_ms", 100.0)),
-                "--activation-timeout", str(self.channel.get("activation_timeout_seconds", 8.0)),
+                "--stream-endpoint", _stream_endpoint(self.channel),
                 "--output", str(live),
             ],
             channel_dir / "stationary-live.log",
@@ -313,8 +342,7 @@ class PilotRunner:
                 "--dry-run-report", str(dry),
                 "--expected-dry-run-sha256", digest,
                 "--endpoint", self.channel["control_endpoint"],
-                "--movement-lead-ms", str(self.channel.get("movement_lead_ms", 250.0)),
-                "--late-margin-ms", str(self.channel.get("late_margin_ms", 10.0)),
+                "--stream-endpoint", _stream_endpoint(self.channel),
                 "--final-hold-seconds", str(self.channel.get("final_hold_seconds", 5.0)),
                 "--output", str(live),
                 *self._placement_args(condition, trial_number),
@@ -343,6 +371,7 @@ class PilotRunner:
                 self.host_python,
                 str(REPO_ROOT / "channel_emulation/noise_sweep_controller.py"),
                 "--endpoint", self.channel["control_endpoint"],
+                "--stream-endpoint", _stream_endpoint(self.channel),
                 *arguments,
                 "--output", str(output),
             ],
@@ -359,15 +388,15 @@ class PilotRunner:
         profile = json.loads(pathlib.Path(condition["noise_profile_resolved"]["absolute_path"]).read_text(encoding="utf-8"))
         self.lifecycle.start_background_ping(
             self.lifecycle.logs["calibration_ping"],
-            interval=float(self.channel.get("noise_calibration_ping_interval_seconds", 0.02)),
-            count=int(self.channel.get("noise_calibration_ping_count", 400)),
+            interval=float(self.channel.get("signal_calibration_ping_interval_seconds", 0.02)),
+            count=int(self.channel.get("signal_calibration_ping_count", 400)),
             deadline=None,
         )
         calibration = self.noise_command(
             [
                 "calibrate",
-                "--duration", str(self.channel.get("noise_calibration_duration_seconds", 5.0)),
-                "--interval", str(self.channel.get("noise_calibration_interval_seconds", 0.05)),
+                "--duration", str(self.channel.get("signal_calibration_duration_seconds", 5.0)),
+                "--interval", str(self.channel.get("signal_calibration_interval_seconds", 0.05)),
             ],
             channel_dir / "signal-calibration.json",
             channel_dir / "signal-calibration.log",
@@ -380,7 +409,6 @@ class PilotRunner:
                 str(REPO_ROOT / "channel_emulation/noise_sweep_controller.py"),
                 "plan",
                 "--signal-calibration", str(channel_dir / "signal-calibration.json"),
-                "--noise-calibration", condition["noise_calibration_resolved"]["absolute_path"],
                 "--levels", levels_text,
                 "--output", str(plan),
             ],
@@ -396,14 +424,13 @@ class PilotRunner:
                     channel_dir / f"level-{level}-apply.log",
                 )
                 self.checked_sleep(profile["settle_seconds"])
-                measurement = self.noise_command(
-                    [
-                        "measure",
-                        "--duration", str(self.channel.get("noise_measurement_duration_seconds", 2.0)),
-                        "--interval", str(self.channel.get("noise_measurement_interval_seconds", 0.05)),
-                    ],
-                    channel_dir / f"level-{level}-measurement.json",
-                    channel_dir / f"level-{level}-measurement.log",
+                # Open-loop noise: sigma is applied analytically from the
+                # frozen plan, so we snapshot status (signal power, liveness)
+                # rather than measure achieved noise.
+                status = self.noise_command(
+                    ["status"],
+                    channel_dir / f"level-{level}-status.json",
+                    channel_dir / f"level-{level}-status.log",
                 )
                 ping = self.lifecycle.ping(
                     traffic_dir / f"level-{level}-ping.txt",
@@ -424,7 +451,7 @@ class PilotRunner:
                 level_results.append({
                     "target_snr_db": level,
                     "apply": apply_result,
-                    "measurement": measurement,
+                    "status": status,
                     "ping": ping,
                     "confirmation_ping": confirmation,
                     "sustained_attachment_loss": sustained,

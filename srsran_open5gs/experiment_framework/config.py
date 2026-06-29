@@ -162,8 +162,8 @@ def validate_condition(condition, condition_path, parameters):
     if noise.get("enabled"):
         if mobility != "static":
             raise ConfigError(f"noise sweep requires a static condition: {condition_id}")
-        if not noise.get("profile") or not noise.get("calibration"):
-            raise ConfigError(f"noise sweep condition {condition_id} requires noise.profile and noise.calibration")
+        if not noise.get("profile"):
+            raise ConfigError(f"noise sweep condition {condition_id} requires noise.profile")
 
     validate_throughput(condition, parameters)
     _format_launcher(condition, parameters)
@@ -175,6 +175,8 @@ def validate_condition(condition, condition_path, parameters):
     ):
         raise ConfigError(f"condition {condition_id} must preserve absolute coefficients")
     condition.setdefault("port_forward", channel.get("port_forward"))
+    condition.setdefault("port_forward_stream", channel.get("port_forward_stream"))
+    condition.setdefault("stream_endpoint", channel.get("stream_endpoint"))
     return condition
 
 
@@ -224,7 +226,6 @@ def resolve_condition(reference, study_path, parameters):
         add_artifact(resolved, "trajectory", artifacts)
     if (resolved.get("noise") or {}).get("enabled"):
         add_nested_artifact(resolved, ("noise", "profile"), "noise_profile_resolved", artifacts)
-        add_nested_artifact(resolved, ("noise", "calibration"), "noise_calibration_resolved", artifacts)
     resolved["input_artifacts"] = artifacts
     return resolved
 

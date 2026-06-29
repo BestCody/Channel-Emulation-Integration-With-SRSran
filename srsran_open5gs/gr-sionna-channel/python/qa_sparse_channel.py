@@ -4,7 +4,6 @@ import unittest
 
 from gnuradio import blocks
 from gnuradio import gr
-from sionna_channel import commit_both
 from sionna_channel import sparse_channel_cc
 
 
@@ -37,56 +36,32 @@ class SparseChannelImportTests(unittest.TestCase):
 
     def test_limits(self):
         block = sparse_channel_cc(
-            tuple(0.01 + 0j for _ in range(48)),
-            tuple(range(48)),
+            tuple(0.01 + 0j for _ in range(1024)),
+            tuple(range(1024)),
         )
         self.assertIsNotNone(block)
         with self.assertRaises(RuntimeError):
             sparse_channel_cc(
-                tuple(0.01 + 0j for _ in range(49)),
-                tuple(range(49)),
+                tuple(0.01 + 0j for _ in range(1025)),
+                tuple(range(1025)),
             )
 
-    def test_commit_both_is_one_binding_call(self):
-        downlink = sparse_channel_cc((1 + 0j,), (0,))
-        uplink = sparse_channel_cc((1 + 0j,), (0,))
-        downlink_prepared = downlink.prepare_channel(
-            1, 1000, (0.5 + 0j,), (0,)
-        )
-        uplink_prepared = uplink.prepare_channel(
-            1, 1000, (0.5 + 0j,), (0,)
-        )
-        self.assertTrue(
-            commit_both(
-                downlink,
-                downlink_prepared,
-                uplink,
-                uplink_prepared,
-            )
-        )
-        self.assertEqual(downlink.pending_sequence(), 1)
-        self.assertEqual(uplink.pending_sequence(), 1)
+    def test_set_channel_updates_current(self):
+        block = sparse_channel_cc((1 + 0j,), (0,))
+        self.assertEqual(block.update_count(), 0)
+        block.set_channel((0.5 + 0j, 0.25 + 0j), (0, 4), 0.0)
+        self.assertEqual(block.update_count(), 1)
+        self.assertEqual(block.tap_count(), 2)
 
-    def test_commit_both_rejects_wrong_owner_without_publication(self):
-        downlink = sparse_channel_cc((1 + 0j,), (0,))
-        uplink = sparse_channel_cc((1 + 0j,), (0,))
-        downlink_prepared = downlink.prepare_channel(
-            1, 1000, (0.5 + 0j,), (0,)
-        )
-        uplink_prepared = uplink.prepare_channel(
-            1, 1000, (0.5 + 0j,), (0,)
-        )
-        self.assertFalse(
-            commit_both(
-                downlink,
-                uplink_prepared,
-                uplink,
-                downlink_prepared,
-            )
-        )
-        none_pending = (1 << 64) - 1
-        self.assertEqual(downlink.pending_sequence(), none_pending)
-        self.assertEqual(uplink.pending_sequence(), none_pending)
+    def test_set_channel_carries_noise_sigma(self):
+        block = sparse_channel_cc((1 + 0j,), (0,))
+        block.set_channel((1 + 0j,), (0,), 0.25)
+        self.assertAlmostEqual(block.noise_sigma(), 0.25)
+
+    def test_set_channel_rejects_invalid(self):
+        block = sparse_channel_cc((1 + 0j,), (0,))
+        with self.assertRaises(RuntimeError):
+            block.set_channel((1 + 0j,), (2000,), 0.0)
 
 
 if __name__ == "__main__":
