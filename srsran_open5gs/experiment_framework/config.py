@@ -30,6 +30,11 @@ SOLVER_TUNING_KEYS = {
 }
 SOLVER_KEYS = set(PROPAGATION_EFFECTS) | SOLVER_TUNING_KEYS
 MOBILITY = {"static", "moving"}
+# Throughput is always deferred: no verified user-plane endpoint exists.
+DEFERRED_THROUGHPUT = {
+    "status": "deferred",
+    "reason": "No verified user-plane throughput endpoint exists",
+}
 
 
 class ConfigError(ValueError):
@@ -90,28 +95,15 @@ def source_record(path):
     }
 
 
-def _throughput_defaults(parameters):
-    return parameters.get("throughput", {})
-
-
-def validate_throughput(condition, parameters):
+def validate_throughput(condition):
     throughput = condition.get("throughput")
     if not isinstance(throughput, dict):
         raise ConfigError("every condition requires a throughput object")
-    policy = _throughput_defaults(parameters)
-    allowed = set(policy.get("allowed_statuses", ["deferred", "measured"]))
-    status = throughput.get("status")
-    if status not in allowed:
+    if throughput.get("status") != "deferred":
         raise ConfigError(
-            f"throughput status {status!r} is not allowed by benchmark parameters"
+            f"throughput status {throughput.get('status')!r} is not supported; "
+            "only 'deferred' is available"
         )
-    if status == "deferred":
-        reason = str(throughput.get("reason", "")).lower()
-        for term in policy.get("deferred_reason_terms", []):
-            if str(term).lower() not in reason:
-                raise ConfigError(
-                    "throughput deferral reason does not match benchmark parameters"
-                )
 
 
 def _format_launcher(condition, parameters):
@@ -160,18 +152,8 @@ def validate_condition(condition, condition_path, parameters):
         if not noise.get("profile"):
             raise ConfigError(f"noise sweep condition {condition_id} requires noise.profile")
 
-    validate_throughput(condition, parameters)
+    validate_throughput(condition)
     _format_launcher(condition, parameters)
-
-    channel = parameters.get("channel", {})
-    if (
-        channel.get("require_absolute_coefficients", True)
-        and condition.get("normalization", "none") != "none"
-    ):
-        raise ConfigError(f"condition {condition_id} must preserve absolute coefficients")
-    condition.setdefault("port_forward", channel.get("port_forward"))
-    condition.setdefault("port_forward_stream", channel.get("port_forward_stream"))
-    condition.setdefault("stream_endpoint", channel.get("stream_endpoint"))
     return condition
 
 
@@ -300,9 +282,5 @@ def load_and_resolve_study(path, *, resolved_at=None, parameter_files=None):
     resolved["result_root"] = str(result_root)
     resolved["conditions"] = conditions
     resolved["trial_count"] = len(conditions) * study["trials_per_condition"]
-    throughput = parameters.get("throughput", {})
-    resolved["throughput"] = {
-        "status": throughput.get("default_status", "deferred"),
-        "reason": throughput.get("default_reason", "No verified user-plane throughput endpoint exists"),
-    }
+    resolved["throughput"] = dict(DEFERRED_THROUGHPUT)
     return resolved

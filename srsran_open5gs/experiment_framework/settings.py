@@ -10,6 +10,26 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_PARAMETER_FILE = REPO_ROOT / "experiments" / "benchmark-parameters.json"
 
+# Fixed plumbing: coupled to the flowgraph binds, kustomize ports, and the
+# container image. Not user-configurable; these always override any value.
+FIXED_CHANNEL = {
+    "control_endpoint": "tcp://127.0.0.1:5555",
+    "stream_endpoint": "tcp://127.0.0.1:5556",
+    "port_forward": "5555:5555",
+    "port_forward_stream": "5556:5556",
+    "port_forward_host": "127.0.0.1",
+}
+FIXED_RADIO = {
+    "flowgraph_process_pattern": "[m]ulti_ue_.*channel.py|[m]ulti_ue_scenario.py",
+    "gnb_process_pattern": "[/]srsran/gnb",
+    "ue_process_pattern": "[/]opt/srsRAN_4G/build/srsue/src/srsue",
+    "start_gnb_script": "/srsran/config/start_gnb.sh",
+    "start_gnu_script": "/srsran/config/start_gnu.sh",
+    "start_ue_script": "/srsran/config/start_ue.sh",
+    "tun_interface": "tun_srsue",
+    "gateway": "10.41.0.1",
+}
+
 
 def _deep_merge(base, overlay):
     result = copy.deepcopy(base)
@@ -51,16 +71,8 @@ def _bool(value):
 
 ENVIRONMENT_OVERRIDES = {
     "SRSRAN_UE_NUMBER": (("radio", "ue_number"), int),
-    "SRSRAN_UE_NETNS": (("radio", "ue_netns"), str),
-    "SRSRAN_GATEWAY": (("radio", "gateway"), str),
     "SIONNA_PYTHON": (("host_python",), str),
     "BENCHMARK_RESULT_ROOT": (("result_root",), str),
-    "CHANNEL_CONTROL_ENDPOINT": (("channel", "control_endpoint"), str),
-    "CHANNEL_STREAM_ENDPOINT": (("channel", "stream_endpoint"), str),
-    "CHANNEL_PORT_FORWARD": (("channel", "port_forward"), str),
-    "CHANNEL_PORT_FORWARD_STREAM": (("channel", "port_forward_stream"), str),
-    "CHANNEL_PORT_FORWARD_HOST": (("channel", "port_forward_host"), str),
-    "CHANNEL_PORT_FORWARD_PORT": (("channel", "port_forward_port"), int),
     "SIONNA_RANDOMIZE_POSITIONS": (("scene", "randomize_positions"), _bool),
     "SIONNA_PLACEMENT_SEED": (("scene", "placement_seed"), int),
 }
@@ -84,6 +96,9 @@ def load_benchmark_parameters(*parameter_files, inline=None):
         if name in os.environ:
             _set_nested(parameters, keys, converter(os.environ[name]))
     parameters.setdefault("host_python", sys.executable)
+    # Fixed plumbing always wins; these are constants, not knobs.
+    parameters["channel"] = {**parameters.get("channel", {}), **FIXED_CHANNEL}
+    parameters["radio"] = {**parameters.get("radio", {}), **FIXED_RADIO}
     parameters["_parameter_sources"] = sources
     return parameters
 

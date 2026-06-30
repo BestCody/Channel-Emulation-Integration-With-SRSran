@@ -280,7 +280,7 @@ def calculate_stationary_channel(
         coefficient_values.tolist(),
         sample_rate,
         late_policy=config["conversion"]["late_policy"],
-        normalization=config["conversion"]["normalization"],
+        normalization="none",
     )
     conversion_ms = (
         time.perf_counter_ns() - conversion_started

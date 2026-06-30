@@ -16,6 +16,16 @@ from .results import atomic_write_text, write_json
 from .traffic import parse_ping
 
 
+# In-pod log paths; used when benchmark parameters omit a "logs" block.
+DEFAULT_LOGS = {
+    "calibration_ping": "/tmp/evaluation-calibration-ping.log",
+    "continuous_ping": "/tmp/evaluation-continuous-ping.log",
+    "gnb": "/tmp/evaluation-gnb.log",
+    "gnuradio": "/tmp/evaluation-gnuradio.log",
+    "ue": "/tmp/evaluation-ue.log",
+}
+
+
 class CommandFailure(RuntimeError):
     def __init__(self, message, command=None, return_code=None):
         super().__init__(message)
@@ -332,7 +342,7 @@ class KubernetesLifecycle:
         self.parameters = parameters
         self.kubernetes = parameters.get("kubernetes", {})
         self.radio = parameters.get("radio", {})
-        self.logs = parameters.get("logs", {})
+        self.logs = {**DEFAULT_LOGS, **parameters.get("logs", {})}
         self.timeouts = parameters.get("timeouts", {})
         self.original = None
         self.ue_pod = None
@@ -619,10 +629,9 @@ class KubernetesLifecycle:
         return env
 
     def throughput_record(self):
-        throughput = self.parameters.get("throughput", {})
         return {
-            "status": throughput.get("default_status", "deferred"),
-            "reason": throughput.get("default_reason", "No verified user-plane throughput endpoint exists"),
+            "status": "deferred",
+            "reason": "No verified user-plane throughput endpoint exists",
         }
 
     def baseline_check(self, output_dir, *, ping_count=100, monitor_trial_dir=None):

@@ -128,7 +128,7 @@ class MovingSionnaScene:
             coefficient_values.tolist(),
             self.sample_rate,
             late_policy=self.config["conversion"]["late_policy"],
-            normalization=self.config["conversion"]["normalization"],
+            normalization="none",
         )
         conversion_end_ns = time.monotonic_ns()
         calculation_end_ns = conversion_end_ns

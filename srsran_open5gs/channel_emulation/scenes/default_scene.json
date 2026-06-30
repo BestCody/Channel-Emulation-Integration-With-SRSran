@@ -23,10 +23,14 @@
     "synthetic_array": true,
     "los": false,
     "specular_reflection": false,
+    "diffuse_reflection": false,
+    "refraction": false,
+    "diffraction": false,
+    "edge_diffraction": false,
+    "diffraction_lit_region": false,
     "seed": 42
   },
   "conversion": {
-    "late_policy": "reject",
-    "normalization": "none"
+    "late_policy": "reject"
   }
 }

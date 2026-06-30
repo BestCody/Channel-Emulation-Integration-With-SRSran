@@ -9,7 +9,7 @@ import signal
 import socket
 import time
 
-from .config import REPO_ROOT, apply_propagation, sha256_file
+from .config import DEFERRED_THROUGHPUT, REPO_ROOT, apply_propagation, sha256_file
 from .failures import FailureRecord
 from .lifecycle import (
     AMFMonitor,
@@ -249,11 +249,7 @@ class PilotRunner:
         return arguments
 
     def throughput_record(self):
-        throughput = self.parameters.get("throughput", {})
-        return {
-            "status": throughput.get("default_status", "deferred"),
-            "reason": throughput.get("default_reason", "No verified user-plane throughput endpoint exists"),
-        }
+        return dict(DEFERRED_THROUGHPUT)
 
     def stationary_channel(self, condition, trial_dir, trial_number, scene_path):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
