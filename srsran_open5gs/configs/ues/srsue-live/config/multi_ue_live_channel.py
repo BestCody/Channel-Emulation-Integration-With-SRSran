@@ -28,16 +28,6 @@ class MultiUeLiveChannel(gr.top_block):
 
         identity_coefficients = (1.0 + 0.0j,)
         identity_delays = (0,)
-        self.downlink_channel = sparse_channel_cc(
-            identity_coefficients,
-            identity_delays,
-            sps,
-        )
-        self.uplink_channel = sparse_channel_cc(
-            identity_coefficients,
-            identity_delays,
-            sps,
-        )
 
         zmq_timeout = 100
         zmq_hwm = -1
@@ -64,6 +54,8 @@ class MultiUeLiveChannel(gr.top_block):
         )
         self.uplink_adder = blocks.add_vcc(1)
 
+        self.downlink_channels = []
+        self.uplink_channels = []
         self.ue_uplink_sources = []
         self.ue_downlink_sinks = []
         for index in range(num_ues):
@@ -84,32 +76,50 @@ class MultiUeLiveChannel(gr.top_block):
                 False,
                 zmq_hwm,
             )
+            downlink_channel = sparse_channel_cc(
+                identity_coefficients,
+                identity_delays,
+                sps,
+            )
+            uplink_channel = sparse_channel_cc(
+                identity_coefficients,
+                identity_delays,
+                sps,
+            )
             self.ue_uplink_sources.append(uplink_source)
             self.ue_downlink_sinks.append(downlink_sink)
-            self.connect((uplink_source, 0), (self.uplink_adder, index))
-            self.connect((self.throttle, 0), (downlink_sink, 0))
+            self.downlink_channels.append(downlink_channel)
+            self.uplink_channels.append(uplink_channel)
+            self.connect(
+                (self.throttle, 0),
+                (downlink_channel, 0),
+                (downlink_sink, 0),
+            )
+            self.connect(
+                (uplink_source, 0),
+                (uplink_channel, 0),
+                (self.uplink_adder, index),
+            )
 
         self.connect(
             (self.gnb_downlink_source, 0),
-            (self.downlink_channel, 0),
             (self.throttle, 0),
         )
         self.connect(
             (self.uplink_adder, 0),
-            (self.uplink_channel, 0),
             (self.gnb_uplink_sink, 0),
         )
 
         self.control_server = ChannelControlServer(
             bind_endpoint=control_bind,
-            downlink=self.downlink_channel,
-            uplink=self.uplink_channel,
+            downlinks=self.downlink_channels,
+            uplinks=self.uplink_channels,
             sample_rate=sample_rate,
         )
         print(
-            "Live sparse channel enabled with identity taps; "
-            "Sionna, mobility, and noise disabled; "
-            "per-symbol CIR streaming available",
+            f"Live sparse channel enabled for {num_ues} UE(s) with identity "
+            "taps; Sionna, mobility, and noise disabled; per-symbol per-UE "
+            "CIR streaming available",
             flush=True,
         )
 

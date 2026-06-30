@@ -13,10 +13,10 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 
 from .results import atomic_write_text, write_json
-from .traffic import parse_ping
+from .ping_parsing import parse_ping
 
 
-# In-pod log paths; used when benchmark parameters omit a "logs" block.
+# In-pod log paths when params omit a "logs" block
 DEFAULT_LOGS = {
     "calibration_ping": "/tmp/evaluation-calibration-ping.log",
     "continuous_ping": "/tmp/evaluation-continuous-ping.log",
@@ -355,8 +355,9 @@ class KubernetesLifecycle:
         self.ue_config_volume = self.kubernetes.get("ue_config_volume", "ue-volume")
         self.baseline_overlay = self.kubernetes.get("baseline_overlay", "configs/ues/srsue")
         self.baseline_script = self.kubernetes.get("baseline_script", "bin/baseline.sh")
-        self.ue_number = int(self.radio.get("ue_number", 1))
-        self.ue_netns = self.radio.get("ue_netns", f"ue{self.ue_number}")
+        self.num_ues = int(self.radio.get("ue_number", 1))
+        self.ue_number = self.num_ues
+        self.ue_netns = self.radio.get("ue_netns", "ue1")
         self.gateway = self.radio.get("gateway")
         self.tun_interface = self.radio.get("tun_interface", "tun_srsue")
         self.flowgraph_pattern = self.radio.get("flowgraph_process_pattern")
@@ -366,6 +367,16 @@ class KubernetesLifecycle:
     @staticmethod
     def shell_quote(value):
         return shlex.quote(str(value))
+
+    def ue_netns_for(self, ue_index):
+        return f"ue{int(ue_index)}"
+
+    def ue_log_path(self, ue_index):
+        base = self.logs["ue"]
+        if self.num_ues == 1:
+            return base
+        root, ext = os.path.splitext(base)
+        return f"{root}-ue{int(ue_index)}{ext}"
 
     def kubectl(self, *arguments):
         return ["kubectl", *arguments]
@@ -505,7 +516,6 @@ class KubernetesLifecycle:
         launcher = condition["launcher"]
         gnuradio_log = self.shell_quote(self.logs["gnuradio"])
         gnb_log = self.shell_quote(self.logs["gnb"])
-        ue_log = self.shell_quote(self.logs["ue"])
         self.ue_capture(f"nohup {launcher} >{gnuradio_log} 2>&1 </dev/null &")
         time.sleep(float(self.timeouts.get("radio_start_gnuradio_sleep_seconds", 5.0)))
         flow = self.ue_capture(f"pgrep -f {self.shell_quote(self.flowgraph_pattern)} | head -n1")
@@ -513,22 +523,30 @@ class KubernetesLifecycle:
             raise CommandFailure("GNU Radio process did not remain running")
         self.gnb_capture(f"nohup {self.radio['start_gnb_script']} >{gnb_log} 2>&1 </dev/null &")
         time.sleep(float(self.timeouts.get("radio_start_gnb_sleep_seconds", 3.0)))
-        self.ue_capture(f"nohup {self.radio['start_ue_script']} {self.ue_number} >{ue_log} 2>&1 </dev/null &")
         timeout = condition["measurement_profile_resolved"]["values"].get("attachment_timeout_seconds", 120)
         phrase = self.shell_quote(self.radio.get("attachment_log_phrase", "PDU Session Establishment successful"))
+        ue_ips = []
+        for ue_index in range(1, self.num_ues + 1):
+            ue_ips.append(self._start_one_ue(ue_index, trial_dir, timeout, phrase))
+        return ue_ips
+
+    def _start_one_ue(self, ue_index, trial_dir, timeout, phrase):
+        ue_log = self.shell_quote(self.ue_log_path(ue_index))
+        netns = self.ue_netns_for(ue_index)
+        self.ue_capture(f"nohup {self.radio['start_ue_script']} {ue_index} >{ue_log} 2>&1 </dev/null &")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.ue_capture(f"grep -Fq {phrase} {ue_log}; printf '%s' $?", check=False) == "0":
                 break
             if not self.ue_capture(f"pgrep -f {self.shell_quote(self.ue_process_pattern)} || true"):
-                raise CommandFailure("UE process exited before attachment")
+                raise CommandFailure(f"UE {ue_index} process exited before attachment")
             time.sleep(1)
         else:
-            raise CommandFailure("UE attachment timed out")
-        self.ue_capture(f"ip netns exec {self.shell_quote(self.ue_netns)} ip route replace default via {self.shell_quote(self.gateway)}")
-        ue_ip = self.ue_capture(f"ip netns exec {self.shell_quote(self.ue_netns)} ip -4 -o addr show dev {self.shell_quote(self.tun_interface)} | awk '{{print $4}}'")
-        atomic_write_text(trial_dir / "condition/ue-ip.txt", ue_ip + "\n")
-        return ue_ip
+            raise CommandFailure(f"UE {ue_index} attachment timed out")
+        self.ue_capture(f"ip netns exec {self.shell_quote(netns)} ip route replace default via {self.shell_quote(self.gateway)}")
+        ue_ip = self.ue_capture(f"ip netns exec {self.shell_quote(netns)} ip -4 -o addr show dev {self.shell_quote(self.tun_interface)} | awk '{{print $4}}'")
+        atomic_write_text(trial_dir / f"condition/ue-ip-{ue_index}.txt", ue_ip + "\n")
+        return {"ue_index": ue_index, "ue_ip": ue_ip}
 
     def radio_identity(self):
         self.ue_pod = self.discover_ue()
@@ -542,16 +560,18 @@ class KubernetesLifecycle:
             "gnb_pid": self.gnb_capture(f"pgrep -f {self.shell_quote(self.gnb_process_pattern)} | head -n1"),
         }
 
-    def ping(self, output_path, *, count=100, interval=0.1, deadline=2):
+    def ping(self, output_path, *, count=100, interval=0.1, deadline=2, ue_index=1):
+        netns = self.ue_netns_for(ue_index)
         output = self.ue_capture(
-            f"ip netns exec {self.shell_quote(self.ue_netns)} ping -D -i {float(interval):g} -c {int(count)} -W {deadline} {self.shell_quote(self.gateway)}",
+            f"ip netns exec {self.shell_quote(netns)} ping -D -i {float(interval):g} -c {int(count)} -W {deadline} {self.shell_quote(self.gateway)}",
             check=False,
         )
         atomic_write_text(output_path, output + "\n")
         return parse_ping(output)
 
-    def start_background_ping(self, log_path, *, interval, count=None, deadline=None):
-        command = f"nohup ip netns exec {self.shell_quote(self.ue_netns)} ping -D -i {float(interval):g}"
+    def start_background_ping(self, log_path, *, interval, count=None, deadline=None, ue_index=1):
+        netns = self.ue_netns_for(ue_index)
+        command = f"nohup ip netns exec {self.shell_quote(netns)} ping -D -i {float(interval):g}"
         if count is not None:
             command += f" -c {int(count)}"
         if deadline is not None:
@@ -569,7 +589,9 @@ class KubernetesLifecycle:
         logs = pathlib.Path(trial_dir) / "condition/logs"
         logs.mkdir(parents=True, exist_ok=True)
         atomic_write_text(logs / "gnuradio.log", self.ue_capture(f"cat {self.shell_quote(self.logs['gnuradio'])} 2>/dev/null || true", check=False) + "\n")
-        atomic_write_text(logs / "ue.log", self.ue_capture(f"cat {self.shell_quote(self.logs['ue'])} 2>/dev/null || true", check=False) + "\n")
+        for ue_index in range(1, self.num_ues + 1):
+            name = "ue.log" if self.num_ues == 1 else f"ue-{ue_index}.log"
+            atomic_write_text(logs / name, self.ue_capture(f"cat {self.shell_quote(self.ue_log_path(ue_index))} 2>/dev/null || true", check=False) + "\n")
         atomic_write_text(logs / "gnb.log", self.gnb_capture(f"cat {self.shell_quote(self.logs['gnb'])} 2>/dev/null || true", check=False) + "\n")
 
     def restore(self, output_dir):

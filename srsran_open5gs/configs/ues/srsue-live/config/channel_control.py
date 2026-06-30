@@ -25,15 +25,20 @@ class ChannelControlServer:
     def __init__(
         self,
         bind_endpoint,
-        downlink,
-        uplink,
+        downlinks,
+        uplinks,
         sample_rate,
         stream_endpoint="tcp://0.0.0.0:5556",
     ):
         self.bind_endpoint = bind_endpoint
         self.stream_endpoint = stream_endpoint
-        self.downlink = downlink
-        self.uplink = uplink
+        self.downlinks = list(downlinks)
+        self.uplinks = list(uplinks)
+        if len(self.downlinks) != len(self.uplinks):
+            raise ValueError("downlink and uplink channel counts must match")
+        if not self.downlinks:
+            raise ValueError("at least one UE channel is required")
+        self.num_ues = len(self.downlinks)
         self.sample_rate = float(sample_rate)
         self._stop_event = threading.Event()
         self._thread = None
@@ -68,6 +73,7 @@ class ChannelControlServer:
             "max_delay": MAX_DELAY,
             "directions": ["both", "downlink", "uplink"],
             "per_symbol_channels": True,
+            "num_ues": self.num_ues,
         }
 
     def status(self):
@@ -78,16 +84,27 @@ class ChannelControlServer:
             "rejected_updates": self.rejected_updates,
             "last_set_us": self.last_set_us,
             "last_accepted_sequence": self.last_accepted_sequence,
-            "downlink": block_status(self.downlink),
-            "uplink": block_status(self.uplink),
+            "num_ues": self.num_ues,
+            "downlink": [block_status(block) for block in self.downlinks],
+            "uplink": [block_status(block) for block in self.uplinks],
         }
 
-    def _selected_blocks(self, direction):
+    def _ue_slice(self, ue_index):
+        if ue_index == 0:
+            return range(self.num_ues)
+        if 1 <= ue_index <= self.num_ues:
+            return (ue_index - 1,)
+        raise ValueError(
+            f"ue_index {ue_index} is outside 0..{self.num_ues}"
+        )
+
+    def _selected_blocks(self, direction, ue_index):
         blocks = []
-        if direction in ("both", "downlink"):
-            blocks.append(self.downlink)
-        if direction in ("both", "uplink"):
-            blocks.append(self.uplink)
+        for index in self._ue_slice(ue_index):
+            if direction in ("both", "downlink"):
+                blocks.append(self.downlinks[index])
+            if direction in ("both", "uplink"):
+                blocks.append(self.uplinks[index])
         return blocks
 
     def apply_update(self, update):
@@ -96,7 +113,9 @@ class ChannelControlServer:
         delays = tuple(tap.delay for tap in update.taps)
         with self._transaction_lock:
             started = time.perf_counter_ns()
-            for block in self._selected_blocks(update.direction):
+            for block in self._selected_blocks(
+                update.direction, update.ue_index
+            ):
                 block.set_channel(coefficients, delays, update.noise_sigma)
             self.last_set_us = (time.perf_counter_ns() - started) / 1000.0
             self.last_accepted_sequence = update.sequence

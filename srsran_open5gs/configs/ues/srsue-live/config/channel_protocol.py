@@ -14,6 +14,8 @@ MAX_DELAY = MAX_CHANNEL_LEN - 1
 MAX_MESSAGE_BYTES = 1024 * 1024
 NOISE_SIGMA_MAX = 512.0
 VALID_DIRECTIONS = {"both", "downlink", "uplink"}
+# UE addressing: 0 = all UEs, k = UE k (1-based)
+MAX_UES = 64
 
 # Latest CIR stream frame wins
 _FRAME_MAGIC = b"SCIR"
@@ -37,6 +39,7 @@ class ChannelUpdate:
     taps: tuple
     client_send_ns: int
     noise_sigma: float
+    ue_index: int
 
 
 def strict_integer(value, field):
@@ -127,6 +130,9 @@ def parse_update(message):
     if client_send_ns < 0:
         raise ValueError("client_send_ns cannot be negative")
     noise_sigma = strict_noise_sigma(message.get("noise_sigma", 0.0))
+    ue_index = strict_integer(message.get("ue_index", 0), "ue_index")
+    if ue_index < 0 or ue_index > MAX_UES:
+        raise ValueError(f"ue_index must be in 0..{MAX_UES}")
 
     allowed = {
         "version",
@@ -136,6 +142,7 @@ def parse_update(message):
         "taps",
         "client_send_ns",
         "noise_sigma",
+        "ue_index",
     }
     unknown = set(message) - allowed
     if unknown:
@@ -147,6 +154,7 @@ def parse_update(message):
         taps=tap_objects(message.get("taps")),
         client_send_ns=client_send_ns,
         noise_sigma=noise_sigma,
+        ue_index=ue_index,
     )
 
 
@@ -156,6 +164,7 @@ def build_update(
     direction="both",
     client_send_ns=0,
     noise_sigma=0.0,
+    ue_index=0,
 ):
     taps = validate_taps(tuple(taps))
     message = {
@@ -173,6 +182,7 @@ def build_update(
             for tap in taps
         ],
         "client_send_ns": strict_integer(client_send_ns, "client_send_ns"),
+        "ue_index": strict_integer(ue_index, "ue_index"),
     }
     parse_update(message)
     return message
@@ -189,7 +199,7 @@ def _encode_update_frame(message):
             PROTOCOL_VERSION,
             _MSG_CHANNEL_UPDATE,
             _DIRECTION_CODES[direction],
-            0,
+            int(message.get("ue_index", 0)),
             int(message["sequence"]),
             int(message.get("client_send_ns", 0)),
             float(message.get("noise_sigma", 0.0)),
@@ -212,7 +222,7 @@ def _decode_update_frame(payload):
         version,
         msg_type,
         direction_code,
-        _flags,
+        ue_index,
         sequence,
         client_send_ns,
         noise_sigma,
@@ -242,6 +252,7 @@ def _decode_update_frame(payload):
         "noise_sigma": noise_sigma,
         "taps": taps,
         "client_send_ns": client_send_ns,
+        "ue_index": ue_index,
     }
 
 

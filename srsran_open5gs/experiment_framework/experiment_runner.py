@@ -23,7 +23,7 @@ from .lifecycle import (
 from .provenance import collect_provenance
 from .results import ResultStore, atomic_write_text, write_json
 from .summarize import summarize_run
-from .traffic import parse_ping
+from .ping_parsing import parse_ping
 
 
 def _port_forward_mappings(channel):
@@ -261,6 +261,7 @@ class PilotRunner:
                 "--dry-run",
                 "--scene-config", scene_path,
                 "--output", str(dry),
+                "--num-ues", str(self.lifecycle.num_ues),
                 "--repeats", str(self.channel.get("stationary_repeats", 3)),
                 *self._placement_args(condition, trial_number),
             ],
@@ -276,6 +277,7 @@ class PilotRunner:
                 str(REPO_ROOT / "channel_emulation/stationary_sionna_controller.py"),
                 "--send-report", str(dry),
                 "--expected-report-sha256", digest,
+                "--num-ues", str(self.lifecycle.num_ues),
                 "--endpoint", self.channel["control_endpoint"],
                 "--stream-endpoint", _stream_endpoint(self.channel),
                 "--output", str(live),
@@ -298,6 +300,23 @@ class PilotRunner:
         write_json(resolved, merged)
         return str(resolved)
 
+    def final_ping_per_ue(self, trial_dir, final):
+        traffic = pathlib.Path(trial_dir) / "condition/traffic"
+        pings = []
+        for ue_index in range(1, self.lifecycle.num_ues + 1):
+            name = (
+                "final-ping.txt" if self.lifecycle.num_ues == 1
+                else f"final-ping-ue{ue_index}.txt"
+            )
+            ping = self.lifecycle.ping(
+                traffic / name,
+                count=final["count"],
+                deadline=final["deadline_seconds"],
+                ue_index=ue_index,
+            )
+            pings.append({"ue_index": ue_index, "ping": ping})
+        return pings
+
     def run_static(self, condition, trial_dir, trial_number, scene_path):
         self.start_port_forward(trial_dir)
         self.start_continuous_ping()
@@ -305,12 +324,13 @@ class PilotRunner:
         self.checked_sleep(float(self.channel.get("continuous_ping_start_sleep_seconds", 10.0)))
         continuous = self.stop_continuous_ping(trial_dir)
         final = condition["measurement_profile_resolved"]["values"]["final_ping"]
-        ping = self.lifecycle.ping(
-            pathlib.Path(trial_dir) / "condition/traffic/final-ping.txt",
-            count=final["count"],
-            deadline=final["deadline_seconds"],
-        )
-        return {"channel": channel, "continuous_ping": continuous, "ping": ping}
+        pings = self.final_ping_per_ue(trial_dir, final)
+        return {
+            "channel": channel,
+            "continuous_ping": continuous,
+            "ping": pings[0]["ping"],
+            "pings": pings,
+        }
 
     def run_moving(self, condition, trial_dir, trial_number, scene_path):
         self.start_port_forward(trial_dir)
@@ -324,6 +344,7 @@ class PilotRunner:
                 "--trajectory", condition["trajectory_resolved"]["absolute_path"],
                 "--scene-config", scene_path,
                 "--output", str(dry),
+                "--num-ues", str(self.lifecycle.num_ues),
                 *self._placement_args(condition, trial_number),
             ],
             channel_dir / "moving-dry-run.log",
@@ -341,6 +362,7 @@ class PilotRunner:
                 "--scene-config", scene_path,
                 "--dry-run-report", str(dry),
                 "--expected-dry-run-sha256", digest,
+                "--num-ues", str(self.lifecycle.num_ues),
                 "--endpoint", self.channel["control_endpoint"],
                 "--stream-endpoint", _stream_endpoint(self.channel),
                 "--final-hold-seconds", str(self.channel.get("final_hold_seconds", 5.0)),
@@ -352,17 +374,14 @@ class PilotRunner:
         )
         continuous = self.stop_continuous_ping(trial_dir)
         final = condition["measurement_profile_resolved"]["values"]["final_ping"]
-        ping = self.lifecycle.ping(
-            pathlib.Path(trial_dir) / "condition/traffic/final-ping.txt",
-            count=final["count"],
-            deadline=final["deadline_seconds"],
-        )
+        pings = self.final_ping_per_ue(trial_dir, final)
         return {
             "dry_report_sha256": digest,
             "dry": json.loads(dry.read_text(encoding="utf-8")),
             "live": json.loads(live.read_text(encoding="utf-8")),
             "continuous_ping": continuous,
-            "ping": ping,
+            "ping": pings[0]["ping"],
+            "pings": pings,
         }
 
     def noise_command(self, arguments, output, log, timeout=None):
@@ -424,7 +443,7 @@ class PilotRunner:
                     channel_dir / f"level-{level}-apply.log",
                 )
                 self.checked_sleep(profile["settle_seconds"])
-                # Snapshot open-loop noise status, not measured SNR
+                # Open-loop noise status, not measured SNR
                 status = self.noise_command(
                     ["status"],
                     channel_dir / f"level-{level}-status.json",
@@ -488,15 +507,20 @@ class PilotRunner:
             total += sum(bool(patterns.search(line)) for line in path.read_text(encoding="utf-8", errors="replace").splitlines())
         return total
 
-    def trial_summary(self, condition, trial_number, ue_ip, result, amf_start):
+    def trial_summary(self, condition, trial_number, ue_ips, result, amf_start):
         ping = result.get("ping") or result.get("continuous_ping")
+        if isinstance(ue_ips, list) and len(ue_ips) == 1:
+            ue_ip_field = ue_ips[0].get("ue_ip")
+        else:
+            ue_ip_field = ue_ips
         return {
             "condition_id": condition["condition_id"],
             "trial_number": trial_number,
             "status": "passed",
             "attachment_success": True,
-            "ue_ip": ue_ip,
+            "ue_ip": ue_ip_field,
             "ping": ping,
+            "pings": result.get("pings"),
             "connection_failures": 0,
             "amf": self.amf_slice(amf_start),
             "throughput": self.throughput_record(),

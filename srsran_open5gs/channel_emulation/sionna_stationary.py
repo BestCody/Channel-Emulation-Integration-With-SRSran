@@ -121,6 +121,35 @@ def _apply_random_placement(
     return config
 
 
+def sample_ue_positions(bounds, num_ues, *, seed=None, min_distance=0.0):
+    """Sample one shared TX and num_ues RX positions
+
+    Mirrors _apply_random_placement so num_ues==1 reproduces the
+    single-pair random placement exactly.
+    """
+    num_ues = int(num_ues)
+    if num_ues < 1:
+        raise ValueError("num_ues must be at least one")
+    lower, upper = bounds
+    min_distance = float(min_distance)
+    if min_distance < 0.0 or not math.isfinite(min_distance):
+        raise ValueError("placement min_distance_m must be finite and non-negative")
+    if min_distance > _distance(lower, upper):
+        raise ValueError(
+            "placement min_distance_m exceeds the scene bounding box; "
+            "transmitter and receiver cannot be separated that far"
+        )
+    rng = random.Random(seed)
+    transmitter = _random_point(lower, upper, rng)
+    receivers = []
+    for _ in range(num_ues):
+        receiver = _random_point(lower, upper, rng)
+        while _distance(transmitter, receiver) < min_distance:
+            receiver = _random_point(lower, upper, rng)
+        receivers.append(receiver)
+    return transmitter, receivers
+
+
 def load_scene_config(
     path,
     *,

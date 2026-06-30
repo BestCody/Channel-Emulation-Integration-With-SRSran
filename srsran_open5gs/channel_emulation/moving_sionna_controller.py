@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import hashlib
 import json
@@ -22,6 +23,8 @@ from sionna_moving import analyze_phase_progression  # noqa: E402
 from sionna_moving import tap_changes  # noqa: E402
 from sionna_radio_config import load_radio_config  # noqa: E402
 from sionna_stationary import load_scene_config  # noqa: E402
+from sionna_stationary import sample_ue_positions  # noqa: E402
+from sionna_stationary import scene_bounding_box  # noqa: E402
 from sionna_taps import interpolate_taps  # noqa: E402
 from sionna_taps import taps_from_report  # noqa: E402
 from trajectory import load_trajectory  # noqa: E402
@@ -104,12 +107,7 @@ def dry_run_gate(report):
     return {"safe": not errors, "errors": errors}
 
 
-def run_dry(args, radio, trajectory, config):
-    scene = MovingSionnaScene(
-        config,
-        carrier_hz=radio.carrier_hz,
-        sample_rate=radio.sample_rate,
-    )
+def build_dry_report(scene, trajectory, radio, config):
     points = []
     previous = None
     for point in trajectory.points:
@@ -131,7 +129,7 @@ def run_dry(args, radio, trajectory, config):
         "update_interval_ns": trajectory.update_interval_ns,
         "carrier_hz": radio.carrier_hz,
         "sample_rate": radio.sample_rate,
-        "stationary_gnb": list(trajectory.points[0].position),
+        "stationary_gnb": config["transmitter"]["position"],
         "configured_gnb": config["transmitter"]["position"],
         "scene_setup_ms": scene.scene_setup_ns / 1e6,
         "motion": motion,
@@ -140,8 +138,18 @@ def run_dry(args, radio, trajectory, config):
         "points": points,
         "phase_progression": phase,
     }
-    report["stationary_gnb"] = config["transmitter"]["position"]
     report["gate"] = dry_run_gate(report)
+    return report
+
+
+def run_dry(args, radio, trajectory, config):
+    scene = MovingSionnaScene(
+        config,
+        carrier_hz=radio.carrier_hz,
+        sample_rate=radio.sample_rate,
+    )
+    report = build_dry_report(scene, trajectory, radio, config)
+    points = report["points"]
     output = pathlib.Path(args.output)
     write_json(output, report)
     print(json.dumps({
@@ -172,13 +180,13 @@ def validate_dry_report(path, expected_sha, radio, trajectory):
     return report
 
 
-def stream_cir(client, taps, sequence):
-    # Stream one latest-wins CIR
+def stream_cir(client, taps, sequence, ue_index=0):
     message = build_update(
         taps=taps,
         sequence=sequence,
         direction="both",
         client_send_ns=time.time_ns(),
+        ue_index=ue_index,
     )
     client.stream(message)
 
@@ -226,7 +234,6 @@ def run_live(args, radio, trajectory, config):
         epoch_created_ns = time.monotonic_ns()
         for index in range(1, len(trajectory.points)):
             current_taps = protocol_taps(scene.solve(trajectory.points[index]))
-            # stream interpolated CIRs across the trajectory interval
             for step in range(1, steps + 1):
                 alpha = step / steps
                 blended = blend_to_protocol(
@@ -250,6 +257,198 @@ def run_live(args, radio, trajectory, config):
             "dry_run_report": str(args.dry_run_report),
             "dry_run_sha256": sha256(args.dry_run_report),
             "update_interval_ns": trajectory.update_interval_ns,
+            "interp_steps": steps,
+            "per_symbol_channels": True,
+            "noise_enabled": False,
+            "streamed_updates": len(records),
+            "epoch_created_monotonic_ns": epoch_created_ns,
+            "records": records,
+            "final_status": final_status,
+        }
+        write_json(args.output, result)
+        print(json.dumps({
+            "output": args.output,
+            "streamed_updates": len(records),
+            "final_accepted_sequence":
+                final_status["last_accepted_sequence"],
+        }, sort_keys=True), flush=True)
+    finally:
+        client.close()
+
+
+def build_multi_ue_setups(args, base_trajectory, num_ues):
+    if args.placement_mode != "random":
+        raise ValueError(
+            "multi-UE (--num-ues > 1) requires --placement-mode random"
+        )
+    base = load_scene_config(args.scene_config, placement_mode="configured")
+    bounds = scene_bounding_box(base["scene"])
+    min_distance = (
+        args.placement_min_distance
+        if args.placement_min_distance is not None
+        else base.get("placement", {}).get("min_distance_m", 0.0)
+    )
+    transmitter, receivers = sample_ue_positions(
+        bounds,
+        num_ues,
+        seed=args.placement_seed,
+        min_distance=min_distance,
+    )
+    start = tuple(base_trajectory.points[0].position)
+    setups = []
+    for index, receiver in enumerate(receivers):
+        config = copy.deepcopy(base)
+        config["transmitter"]["position"] = list(transmitter)
+        offset = tuple(
+            float(target) - float(point) for target, point in zip(receiver, start)
+        )
+        trajectory = translate_trajectory(base_trajectory, offset)
+        config["receiver"]["position"] = list(trajectory.points[0].position)
+        config["resolved_placement"] = {
+            "mode": "random",
+            "seed": args.placement_seed,
+            "transmitter": list(transmitter),
+            "receiver": list(trajectory.points[0].position),
+            "trajectory_offset": list(offset),
+        }
+        setups.append((index + 1, config, trajectory))
+    return setups
+
+
+def run_dry_multi(args, radio, ue_setups):
+    ues = []
+    for ue_index, config, trajectory in ue_setups:
+        scene = MovingSionnaScene(
+            config,
+            carrier_hz=radio.carrier_hz,
+            sample_rate=radio.sample_rate,
+        )
+        report = build_dry_report(scene, trajectory, radio, config)
+        report["ue_index"] = ue_index
+        ues.append(report)
+    combined = {
+        "schema_version": 1,
+        "mode": "moving-channel-complete-dry-run-multi",
+        "num_ues": len(ues),
+        "carrier_hz": radio.carrier_hz,
+        "sample_rate": radio.sample_rate,
+        "ues": ues,
+    }
+    output = pathlib.Path(args.output)
+    write_json(output, combined)
+    print(json.dumps({
+        "output": str(output),
+        "sha256": sha256(output),
+        "num_ues": len(ues),
+        "gates": [
+            {"ue_index": ue["ue_index"], "safe": ue["gate"]["safe"]}
+            for ue in ues
+        ],
+    }, sort_keys=True), flush=True)
+    if not all(ue["gate"]["safe"] for ue in ues):
+        raise SystemExit(2)
+
+
+def validate_dry_report_multi(path, expected_sha, radio, ue_setups):
+    if expected_sha and sha256(path) != expected_sha:
+        raise ValueError("dry-run checksum does not match")
+    report = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+    if int(report.get("num_ues", 0)) != len(ue_setups):
+        raise ValueError("dry-run UE count does not match")
+    if float(report.get("carrier_hz", -1)) != radio.carrier_hz:
+        raise ValueError("dry-run carrier does not match")
+    if float(report.get("sample_rate", -1)) != radio.sample_rate:
+        raise ValueError("dry-run sample rate does not match")
+    for ue in report["ues"]:
+        gate = dry_run_gate(ue)
+        if not gate["safe"]:
+            raise ValueError(
+                f"UE {ue.get('ue_index')} dry-run gate failed: "
+                + "; ".join(gate["errors"])
+            )
+    return report
+
+
+def run_live_multi(args, radio, ue_setups):
+    validate_dry_report_multi(
+        args.dry_run_report,
+        args.expected_dry_run_sha256,
+        radio,
+        ue_setups,
+    )
+    scenes = [
+        (
+            ue_index,
+            MovingSionnaScene(
+                config,
+                carrier_hz=radio.carrier_hz,
+                sample_rate=radio.sample_rate,
+            ),
+            trajectory,
+        )
+        for ue_index, config, trajectory in ue_setups
+    ]
+    client = ChannelClient(args.endpoint, stream_endpoint=args.stream_endpoint)
+    records = []
+    try:
+        config_response = client.get_config()
+        if float(config_response["sample_rate"]) != radio.sample_rate:
+            raise ValueError("live sample rate does not match")
+        if int(config_response.get("num_ues", 1)) != len(scenes):
+            raise ValueError("live flowgraph UE count does not match")
+
+        steps = max(1, int(args.interp_steps))
+        update_interval_ns = scenes[0][2].update_interval_ns
+        num_points = len(scenes[0][2].points)
+        step_sleep_s = update_interval_ns / steps / 1e9
+        sequence = int(client.get_status()["last_accepted_sequence"]) + 1
+
+        previous = {}
+        for ue_index, scene, trajectory in scenes:
+            taps = protocol_taps(scene.solve(trajectory.points[0]))
+            stream_cir(client, taps, sequence, ue_index=ue_index)
+            records.append({
+                "ue_index": ue_index,
+                "index": 0,
+                "alpha": 1.0,
+                "tap_count": len(taps),
+            })
+            previous[ue_index] = taps
+            sequence += 1
+
+        epoch_created_ns = time.monotonic_ns()
+        for index in range(1, num_points):
+            current = {}
+            for ue_index, scene, trajectory in scenes:
+                current[ue_index] = protocol_taps(
+                    scene.solve(trajectory.points[index])
+                )
+            for step in range(1, steps + 1):
+                alpha = step / steps
+                for ue_index, scene, trajectory in scenes:
+                    blended = blend_to_protocol(
+                        previous[ue_index], current[ue_index], alpha
+                    )
+                    stream_cir(client, blended, sequence, ue_index=ue_index)
+                    records.append({
+                        "ue_index": ue_index,
+                        "index": index,
+                        "alpha": alpha,
+                        "tap_count": len(blended),
+                    })
+                    sequence += 1
+                time.sleep(step_sleep_s)
+            previous = current
+
+        time.sleep(args.final_hold_seconds)
+        final_status = client.get_status()
+        result = {
+            "schema_version": 1,
+            "mode": "live-moving-multi-ue-channel-stream",
+            "num_ues": len(scenes),
+            "dry_run_report": str(args.dry_run_report),
+            "dry_run_sha256": sha256(args.dry_run_report),
+            "update_interval_ns": update_interval_ns,
             "interp_steps": steps,
             "per_symbol_channels": True,
             "noise_enabled": False,
@@ -296,6 +495,7 @@ def parse_args():
     parser.add_argument("--placement-mode", choices=["configured", "random"])
     parser.add_argument("--placement-seed", type=int)
     parser.add_argument("--placement-min-distance", type=float)
+    parser.add_argument("--num-ues", type=int, default=1)
     parser.add_argument("--endpoint", default=os.environ.get("CHANNEL_CONTROL_ENDPOINT", "tcp://127.0.0.1:5555"))
     parser.add_argument("--stream-endpoint", default=os.environ.get("CHANNEL_STREAM_ENDPOINT", "tcp://127.0.0.1:5556"))
     parser.add_argument("--interp-steps", type=int, default=8)
@@ -310,6 +510,16 @@ def main():
     args = parse_args()
     radio = load_radio_config(args.gnb_config, args.ue_config)
     trajectory = load_trajectory(args.trajectory)
+    num_ues = int(args.num_ues)
+    if num_ues < 1:
+        raise ValueError("--num-ues must be at least one")
+    if num_ues > 1:
+        ue_setups = build_multi_ue_setups(args, trajectory, num_ues)
+        if args.dry_run:
+            run_dry_multi(args, radio, ue_setups)
+        else:
+            run_live_multi(args, radio, ue_setups)
+        return
     config = load_scene_config(
         args.scene_config,
         placement_mode=args.placement_mode,

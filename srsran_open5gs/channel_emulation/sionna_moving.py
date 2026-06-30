@@ -167,7 +167,7 @@ def direct_path_record(point_report):
     return {
         "path_index": path["index"],
         "delay_seconds": path["delay_seconds"],
-        "rounded_sample_delay": path["rounded_sample_delay"],
+        "rounded_sample_delay": round(path["sample_delay"]),
         "coefficient": path["coefficient"],
         "phase_rad": math.atan2(coefficient.imag, coefficient.real),
         "power": path["power"],

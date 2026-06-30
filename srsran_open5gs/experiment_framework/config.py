@@ -30,7 +30,7 @@ SOLVER_TUNING_KEYS = {
 }
 SOLVER_KEYS = set(PROPAGATION_EFFECTS) | SOLVER_TUNING_KEYS
 MOBILITY = {"static", "moving"}
-# Throughput is always deferred: no verified user-plane endpoint exists.
+# Throughput always deferred: no user-plane endpoint
 DEFERRED_THROUGHPUT = {
     "status": "deferred",
     "reason": "No verified user-plane throughput endpoint exists",

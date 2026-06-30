@@ -10,8 +10,7 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_PARAMETER_FILE = REPO_ROOT / "experiments" / "benchmark-parameters.json"
 
-# Fixed plumbing: coupled to the flowgraph binds, kustomize ports, and the
-# container image. Not user-configurable; these always override any value.
+# Fixed plumbing; not user-configurable, always wins
 FIXED_CHANNEL = {
     "control_endpoint": "tcp://127.0.0.1:5555",
     "stream_endpoint": "tcp://127.0.0.1:5556",
@@ -96,7 +95,7 @@ def load_benchmark_parameters(*parameter_files, inline=None):
         if name in os.environ:
             _set_nested(parameters, keys, converter(os.environ[name]))
     parameters.setdefault("host_python", sys.executable)
-    # Fixed plumbing always wins; these are constants, not knobs.
+    # Fixed plumbing always wins; constants not knobs
     parameters["channel"] = {**parameters.get("channel", {}), **FIXED_CHANNEL}
     parameters["radio"] = {**parameters.get("radio", {}), **FIXED_RADIO}
     parameters["_parameter_sources"] = sources
