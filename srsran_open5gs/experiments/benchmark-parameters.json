@@ -3,7 +3,6 @@
     "continuous_ping_interval_seconds": 0.05,
     "continuous_ping_start_sleep_seconds": 10.0,
     "final_hold_seconds": 5.0,
-    "moving_dry_timeout_seconds": 300,
     "moving_live_timeout_seconds": 300,
     "noise_command_timeout_seconds": 120,
     "port_forward_ready_seconds": 10,

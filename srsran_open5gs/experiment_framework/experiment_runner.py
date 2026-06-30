@@ -9,7 +9,7 @@ import signal
 import socket
 import time
 
-from .config import DEFERRED_THROUGHPUT, REPO_ROOT, apply_propagation, sha256_file
+from .config import DEFERRED_THROUGHPUT, REPO_ROOT, apply_propagation
 from .failures import FailureRecord
 from .lifecycle import (
     AMFMonitor,
@@ -253,44 +253,26 @@ class PilotRunner:
 
     def stationary_channel(self, condition, trial_dir, trial_number, scene_path):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
-        dry = channel_dir / "stationary-dry-run.json"
+        result_path = channel_dir / "stationary-channel.json"
+        timeout = float(self.channel.get("stationary_dry_timeout_seconds", 300)) + float(
+            self.channel.get("stationary_live_timeout_seconds", 60)
+        )
         self.run_host(
             [
                 self.host_python,
                 str(REPO_ROOT / "channel_emulation/stationary_sionna_controller.py"),
-                "--dry-run",
                 "--scene-config", scene_path,
-                "--output", str(dry),
+                "--output", str(result_path),
                 "--num-ues", str(self.lifecycle.num_ues),
                 "--repeats", str(self.channel.get("stationary_repeats", 3)),
-                *self._placement_args(condition, trial_number),
-            ],
-            channel_dir / "stationary-dry-run.log",
-            timeout=float(self.channel.get("stationary_dry_timeout_seconds", 300)),
-        )
-        digest = sha256_file(dry)
-        atomic_write_text(channel_dir / "stationary-dry-run.sha256", f"{digest}  {dry.name}\n")
-        live = channel_dir / "stationary-live-result.json"
-        self.run_host(
-            [
-                self.host_python,
-                str(REPO_ROOT / "channel_emulation/stationary_sionna_controller.py"),
-                "--send-report", str(dry),
-                "--expected-report-sha256", digest,
-                "--num-ues", str(self.lifecycle.num_ues),
                 "--endpoint", self.channel["control_endpoint"],
                 "--stream-endpoint", _stream_endpoint(self.channel),
-                "--output", str(live),
+                *self._placement_args(condition, trial_number),
             ],
-            channel_dir / "stationary-live.log",
-            timeout=float(self.channel.get("stationary_live_timeout_seconds", 60)),
+            channel_dir / "stationary-channel.log",
+            timeout=timeout,
         )
-        return {
-            "dry_report": str(dry),
-            "dry_report_sha256": digest,
-            "dry": json.loads(dry.read_text(encoding="utf-8")),
-            "live": json.loads(live.read_text(encoding="utf-8")),
-        }
+        return json.loads(result_path.read_text(encoding="utf-8"))
 
     def _resolve_scene(self, condition, trial_dir):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
@@ -335,33 +317,14 @@ class PilotRunner:
     def run_moving(self, condition, trial_dir, trial_number, scene_path):
         self.start_port_forward(trial_dir)
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
-        dry = channel_dir / "moving-dry-run.json"
-        self.run_host(
-            [
-                self.host_python,
-                str(REPO_ROOT / "channel_emulation/moving_sionna_controller.py"),
-                "--dry-run",
-                "--trajectory", condition["trajectory_resolved"]["absolute_path"],
-                "--scene-config", scene_path,
-                "--output", str(dry),
-                "--num-ues", str(self.lifecycle.num_ues),
-                *self._placement_args(condition, trial_number),
-            ],
-            channel_dir / "moving-dry-run.log",
-            timeout=float(self.channel.get("moving_dry_timeout_seconds", 300)),
-        )
-        digest = sha256_file(dry)
         self.start_continuous_ping()
-        live = channel_dir / "moving-live-result.json"
+        live = channel_dir / "moving-channel.json"
         self.run_host(
             [
                 self.host_python,
                 str(REPO_ROOT / "channel_emulation/moving_sionna_controller.py"),
-                "--live",
                 "--trajectory", condition["trajectory_resolved"]["absolute_path"],
                 "--scene-config", scene_path,
-                "--dry-run-report", str(dry),
-                "--expected-dry-run-sha256", digest,
                 "--num-ues", str(self.lifecycle.num_ues),
                 "--endpoint", self.channel["control_endpoint"],
                 "--stream-endpoint", _stream_endpoint(self.channel),
@@ -369,15 +332,13 @@ class PilotRunner:
                 "--output", str(live),
                 *self._placement_args(condition, trial_number),
             ],
-            channel_dir / "moving-live.log",
+            channel_dir / "moving-channel.log",
             timeout=float(self.channel.get("moving_live_timeout_seconds", 300)),
         )
         continuous = self.stop_continuous_ping(trial_dir)
         final = condition["measurement_profile_resolved"]["values"]["final_ping"]
         pings = self.final_ping_per_ue(trial_dir, final)
         return {
-            "dry_report_sha256": digest,
-            "dry": json.loads(dry.read_text(encoding="utf-8")),
             "live": json.loads(live.read_text(encoding="utf-8")),
             "continuous_ping": continuous,
             "ping": pings[0]["ping"],

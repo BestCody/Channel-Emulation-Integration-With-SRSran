@@ -175,58 +175,35 @@ def summarize_run(run_root):
             result = json.loads(result_path.read_text(encoding="utf-8"))
             channel = result.get("channel")
             if isinstance(channel, dict):
-                if "taps" in channel:
-                    for tap in channel["taps"]:
+                for ue in channel.get("ues", []):
+                    ue_index = ue.get("ue_index")
+                    timing = ue.get("timing_ms", {})
+                    sionna_timings.append({
+                        "condition_id": condition_id,
+                        "trial_number": trial_number,
+                        "position_index": None,
+                        "ue_index": ue_index,
+                        "solve_ms": timing.get("warm_solve_average"),
+                        "conversion_ms": timing.get("conversion"),
+                        "total_ms": None,
+                    })
+                    for tap in ue.get("conversion", {}).get("retained_taps", []):
                         channel_taps.append({
                             "condition_id": condition_id,
                             "trial_number": trial_number,
                             "position_index": None,
+                            "ue_index": ue_index,
                             **tap,
                         })
-                dry = channel.get("dry")
-                if isinstance(dry, dict):
-                    dry_ues = dry["ues"] if isinstance(dry.get("ues"), list) else [dry]
-                    for ue in dry_ues:
-                        ue_index = ue.get("ue_index")
-                        timing = ue.get("timing_ms", {})
-                        sionna_timings.append({
-                            "condition_id": condition_id,
-                            "trial_number": trial_number,
-                            "position_index": None,
-                            "ue_index": ue_index,
-                            "solve_ms": timing.get("warm_solve_average"),
-                            "conversion_ms": timing.get("conversion"),
-                            "total_ms": None,
-                        })
-                        for tap in ue.get("conversion", {}).get("retained_taps", []):
-                            channel_taps.append({
-                                "condition_id": condition_id,
-                                "trial_number": trial_number,
-                                "position_index": None,
-                                "ue_index": ue_index,
-                                **tap,
-                            })
-                live = channel.get("live")
-                if isinstance(live, dict):
-                    if isinstance(live.get("streamed"), list):
-                        for streamed in live["streamed"]:
-                            channel_updates.append({
-                                "condition_id": condition_id,
-                                "trial_number": trial_number,
-                                "position_index": None,
-                                "ue_index": streamed.get("ue_index"),
-                                "sequence": streamed.get("sequence"),
-                                "tap_count": streamed.get("tap_count"),
-                            })
-                    else:
-                        channel_updates.append({
-                            "condition_id": condition_id,
-                            "trial_number": trial_number,
-                            "position_index": None,
-                            "ue_index": None,
-                            "sequence": live.get("sequence"),
-                            "tap_count": live.get("tap_count"),
-                        })
+                for streamed in channel.get("streamed", []):
+                    channel_updates.append({
+                        "condition_id": condition_id,
+                        "trial_number": trial_number,
+                        "position_index": None,
+                        "ue_index": streamed.get("ue_index"),
+                        "sequence": streamed.get("sequence"),
+                        "tap_count": streamed.get("tap_count"),
+                    })
             moving = result.get("live")
             if isinstance(moving, dict) and isinstance(moving.get("records"), list):
                 # Interpolated CIR stream rows
