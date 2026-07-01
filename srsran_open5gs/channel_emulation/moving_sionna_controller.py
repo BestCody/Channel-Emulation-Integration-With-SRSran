@@ -69,77 +69,18 @@ def blend_to_protocol(previous_taps, current_taps, alpha):
     )
 
 
-def run_live(args, radio, trajectory, config):
-    scene = MovingSionnaScene(
-        config,
-        carrier_hz=radio.carrier_hz,
-        sample_rate=radio.sample_rate,
-    )
-    client = ChannelClient(args.endpoint, stream_endpoint=args.stream_endpoint)
-    records = []
-    try:
-        config_response = client.get_config()
-        if float(config_response["sample_rate"]) != radio.sample_rate:
-            raise ValueError("live sample rate does not match")
-
-        steps = max(1, int(args.interp_steps))
-        step_sleep_s = trajectory.update_interval_ns / steps / 1e9
-        sequence = int(client.get_status()["last_accepted_sequence"]) + 1
-
-        # starting-position CIR
-        previous_taps = protocol_taps(scene.solve(trajectory.points[0]))
-        stream_cir(client, previous_taps, sequence)
-        records.append({
-            "index": 0,
-            "alpha": 1.0,
-            "tap_count": len(previous_taps),
-        })
-        sequence += 1
-
-        epoch_created_ns = time.monotonic_ns()
-        for index in range(1, len(trajectory.points)):
-            current_taps = protocol_taps(scene.solve(trajectory.points[index]))
-            for step in range(1, steps + 1):
-                alpha = step / steps
-                blended = blend_to_protocol(
-                    previous_taps, current_taps, alpha
-                )
-                stream_cir(client, blended, sequence)
-                records.append({
-                    "index": index,
-                    "alpha": alpha,
-                    "tap_count": len(blended),
-                })
-                sequence += 1
-                time.sleep(step_sleep_s)
-            previous_taps = current_taps
-
-        time.sleep(args.final_hold_seconds)
-        final_status = client.get_status()
-        result = {
-            "schema_version": 1,
-            "mode": "live-moving-ue-channel-stream",
-            "update_interval_ns": trajectory.update_interval_ns,
-            "interp_steps": steps,
-            "per_symbol_channels": True,
-            "noise_enabled": False,
-            "streamed_updates": len(records),
-            "epoch_created_monotonic_ns": epoch_created_ns,
-            "records": records,
-            "final_status": final_status,
-        }
-        write_json(args.output, result)
-        print(json.dumps({
-            "output": args.output,
-            "streamed_updates": len(records),
-            "final_accepted_sequence":
-                final_status["last_accepted_sequence"],
-        }, sort_keys=True), flush=True)
-    finally:
-        client.close()
-
-
-def build_multi_ue_setups(args, base_trajectory, num_ues):
+def build_ue_setups(args, base_trajectory, num_ues):
+    # One (ue_index, scene config, trajectory) tuple per UE
+    if num_ues == 1 and args.placement_mode != "random":
+        config = load_scene_config(
+            args.scene_config,
+            placement_mode=args.placement_mode,
+            placement_seed=args.placement_seed,
+            min_distance_m=args.placement_min_distance,
+        )
+        if tuple(config["receiver"]["position"]) != base_trajectory.points[0].position:
+            raise ValueError("scene receiver must match trajectory position 0")
+        return [(1, config, base_trajectory)]
     if args.placement_mode != "random":
         raise ValueError(
             "multi-UE (--num-ues > 1) requires --placement-mode random"
@@ -178,7 +119,7 @@ def build_multi_ue_setups(args, base_trajectory, num_ues):
     return setups
 
 
-def run_live_multi(args, radio, ue_setups):
+def run_live(args, radio, ue_setups):
     scenes = [
         (
             ue_index,
@@ -247,7 +188,7 @@ def run_live_multi(args, radio, ue_setups):
         final_status = client.get_status()
         result = {
             "schema_version": 1,
-            "mode": "live-moving-multi-ue-channel-stream",
+            "mode": "live-moving-channel-stream",
             "num_ues": len(scenes),
             "update_interval_ns": update_interval_ns,
             "interp_steps": steps,
@@ -306,31 +247,8 @@ def main():
     num_ues = int(args.num_ues)
     if num_ues < 1:
         raise ValueError("--num-ues must be at least one")
-    if num_ues > 1:
-        ue_setups = build_multi_ue_setups(args, trajectory, num_ues)
-        run_live_multi(args, radio, ue_setups)
-        return
-    config = load_scene_config(
-        args.scene_config,
-        placement_mode=args.placement_mode,
-        placement_seed=args.placement_seed,
-        min_distance_m=args.placement_min_distance,
-    )
-    resolved = config.get("resolved_placement") or {}
-    if resolved.get("mode") == "random":
-        # random mode shifts trajectory to sampled start
-        start = config["receiver"]["position"]
-        offset = tuple(
-            float(start_coord) - float(point_coord)
-            for start_coord, point_coord in zip(start, trajectory.points[0].position)
-        )
-        trajectory = translate_trajectory(trajectory, offset)
-        config["receiver"]["position"] = list(trajectory.points[0].position)
-        config["resolved_placement"]["receiver"] = list(trajectory.points[0].position)
-        config["resolved_placement"]["trajectory_offset"] = list(offset)
-    if tuple(config["receiver"]["position"]) != trajectory.points[0].position:
-        raise ValueError("scene receiver must match trajectory position 0")
-    run_live(args, radio, trajectory, config)
+    ue_setups = build_ue_setups(args, trajectory, num_ues)
+    run_live(args, radio, ue_setups)
 
 
 if __name__ == "__main__":

@@ -87,26 +87,18 @@ def _apply_random_placement(
     if not isinstance(placement, dict):
         raise ValueError("placement must be an object")
     seed = placement_seed if placement_seed is not None else placement.get("seed")
-    rng = random.Random(seed)
     lower, upper = bounds
     min_distance = float(
         min_distance_m if min_distance_m is not None else placement.get("min_distance_m", 0.0)
     )
-    if min_distance < 0.0 or not math.isfinite(min_distance):
-        raise ValueError("placement min_distance_m must be finite and non-negative")
-    if min_distance > _distance(lower, upper):
-        raise ValueError(
-            "placement min_distance_m exceeds the scene bounding box; "
-            "transmitter and receiver cannot be separated that far"
-        )
     original = {
         "transmitter": copy.deepcopy(config["transmitter"].get("position")),
         "receiver": copy.deepcopy(config["receiver"].get("position")),
     }
-    transmitter = _random_point(lower, upper, rng)
-    receiver = _random_point(lower, upper, rng)
-    while _distance(transmitter, receiver) < min_distance:
-        receiver = _random_point(lower, upper, rng)
+    transmitter, receivers = sample_ue_positions(
+        bounds, 1, seed=seed, min_distance=min_distance
+    )
+    receiver = receivers[0]
     config["transmitter"]["position"] = transmitter
     config["receiver"]["position"] = receiver
     config["resolved_placement"] = {
@@ -124,8 +116,8 @@ def _apply_random_placement(
 def sample_ue_positions(bounds, num_ues, *, seed=None, min_distance=0.0):
     """Sample one shared TX and num_ues RX positions
 
-    Mirrors _apply_random_placement so num_ues==1 reproduces the
-    single-pair random placement exactly.
+    Seeded rejection sampling; _apply_random_placement calls this
+    with num_ues==1 for the single-link case.
     """
     num_ues = int(num_ues)
     if num_ues < 1:
