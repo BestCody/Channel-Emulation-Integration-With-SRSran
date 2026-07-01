@@ -14,7 +14,7 @@ over **realistic radio channels** that are computed with ray tracing. It uses th
 - A machine running **Ubuntu 22.04**.
 - An **NVIDIA GPU** with recent drivers and CUDA
 - **Python 3.11**.
-- A Kubernetes storage class named **`longhorn`** for MongoDB's persistent
+- A Kubernetes storage class named **`longhorn`** 
   volume
 
 ## Setting it up after cloning
