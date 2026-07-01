@@ -27,7 +27,7 @@ def condition_plan(condition, parameters=None):
         f"start kubectl port-forward on {port_forward}",
     ]
     return actions + [
-        "run and validate complete moving-channel dry run",
+        "run and validate the live moving-channel stream",
         "activate position zero before establishing movement epoch",
         "run trajectory positions at fixed targets without restarts",
         "skip late positions and record continuous ping",

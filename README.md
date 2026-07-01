@@ -11,9 +11,12 @@ over **realistic radio channels** that are computed with ray tracing. It uses th
 
 ## What you need
 
-- A machine running **Ubuntu 22.04**.
-- An **NVIDIA GPU** with recent drivers and CUDA
-- **Python 3.11**.
+- A machine running **Ubuntu 22.04 or 24.04**.
+- An **NVIDIA GPU** with recent drivers, CUDA, and the NVIDIA Container
+  Toolkit (see step 2 for the Kubernetes-side setup).
+- **Python 3.11 or newer** (`sionna` and `numpy` require it). Ubuntu 24.04
+  ships 3.12, which works; 22.04's default is 3.10, which is too old — see
+  step 4.
 - A Kubernetes storage class named **`longhorn`** for MongoDB's persistent
   volume, or an edited MongoDB overlay that uses a storage class available on
   your cluster.
@@ -22,20 +25,63 @@ over **realistic radio channels** that are computed with ray tracing. It uses th
 
 ```bash
 git clone https://github.com/BestCody/channel-emulation-integration-with-srs-ran sionna-srsran
-cd sionna-srsran
+cd sionna-srsran/srsran_open5gs
 ```
+
+All the setup commands below run from this `srsran_open5gs/` directory.
 
 **1. Set up the Kubernetes cluster.**
 This installer prepares the single-node cluster and its networking (containerd,
 kubeadm, Flannel, Multus). It does not deploy the 5G network itself.
 
 ```bash
-cd srsran_open5gs/testbed-automator
+cd testbed-automator
 ./install.sh
 cd ..
 ```
 
-**2. Deploy the 5G core and the radio.**
+**2. Enable GPU access in the cluster.**
+The phone (UE) and the live-channel engine request a GPU (`nvidia.com/gpu`), but
+`install.sh` does not wire the GPU into Kubernetes — without this the UE pod
+stays `Pending` with `Insufficient nvidia.com/gpu`. Do it once. The steps below
+keep `runc` as the node's default runtime (safer on a shared host) and let only
+GPU pods opt in through an `nvidia` RuntimeClass:
+
+```bash
+# Needs the NVIDIA Container Toolkit (provides nvidia-ctk). If `nvidia-ctk
+# --version` fails, install it first:
+#   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+
+# a. add an "nvidia" runtime to containerd, leaving runc as the default
+sudo nvidia-ctk runtime configure --runtime=containerd
+sudo systemctl restart containerd
+
+# b. register that runtime with Kubernetes
+kubectl apply -f - <<'EOF'
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+handler: nvidia
+EOF
+
+# c. install the NVIDIA device plugin so the node advertises its GPUs, and
+#    run it under the nvidia runtime so it can see them
+kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/deployments/static/nvidia-device-plugin.yml
+kubectl -n kube-system patch daemonset nvidia-device-plugin-daemonset \
+  --type=json -p '[{"op":"add","path":"/spec/template/spec/runtimeClassName","value":"nvidia"}]'
+
+# d. confirm the node now advertises GPUs (prints 1 or more)
+kubectl get node -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}{"\n"}'
+```
+
+The `srsue` overlay already sets `runtimeClassName: nvidia` so the phone pod
+gets a GPU; make sure any UE overlay you run (including `srsue-live`) does the
+same. On a dedicated (non-shared) GPU host you can instead make nvidia the
+default runtime with `sudo nvidia-ctk runtime configure --runtime=containerd
+--set-as-default` and skip the RuntimeClass entirely.
+
+**3. Deploy the 5G core and the radio.**
 These are applied as Kubernetes overlays. Apply the core first, then the radio:
 
 ```bash
@@ -63,19 +109,35 @@ cd ../../..
 
 The list command prints the registered phones.
 
-**3. Create the Python environment for the ray tracing and neural receiver.**
+**4. Create the Python environment for the ray tracing and neural receiver.**
 These run on the host (not inside Kubernetes) because they use the GPU. There is
-no requirements file yet; install the packages the code expects:
+no requirements file yet; install the packages the code expects.
+
+First confirm your Python is 3.11 or newer:
 
 ```bash
-python3.11 -m venv ~/sionna-env
-source ~/sionna-env/bin/activate
-pip install "sionna==2.0.1" "sionna-rt==2.0.1" pyzmq numpy
-# Install a CUDA build of PyTorch that matches your GPU/driver:
-#   see https://pytorch.org/get-started/locally/
+python3 --version
 ```
 
-**4. Check that the network pods are running.**
+Ubuntu 24.04 ships 3.12, which works — use `python3` (or `python3.12`) below.
+On 22.04 the default is 3.10, which is too old; install a newer Python first
+(the deadsnakes PPA's `python3.11`, or a conda/pyenv 3.11+ environment) and use
+that in place of `python3`.
+
+```bash
+python3 -m venv ~/sionna-env
+source ~/sionna-env/bin/activate
+pip install "sionna==2.0.1" "sionna-rt==2.0.1" pyzmq numpy
+
+# PyTorch must match your NVIDIA driver's CUDA version — check the "CUDA
+# Version" shown top-right in `nvidia-smi`. A plain `pip install torch` may
+# grab a build too new for your driver (torch then reports CUDA unavailable).
+# For a CUDA 12.x driver, install a cu12 build explicitly:
+pip install "torch==2.11.0" --index-url https://download.pytorch.org/whl/cu128
+# Other driver versions: https://pytorch.org/get-started/locally/
+```
+
+**5. Check that the network pods are running.**
 
 ```bash
 kubectl get pods -n open5gs
@@ -83,7 +145,7 @@ kubectl get pods -n open5gs
 
 You should see the Open5GS core, the gNB, and the UE pods in `Running` state.
 
-**5. Build the live-channel UE image.**
+**6. Build the live-channel UE image.**
 Live-channel runs use a custom UE image with the `gr-sionna-channel` CUDA block
 compiled in. The `srsue-live` overlay pins it to `localhost/srsue-live:gr38-v1`
 with `imagePullPolicy: Never`, so it must be built and imported into the
@@ -92,26 +154,24 @@ cluster's containerd **before** running — otherwise the UE pod fails with
 live image, then import it:
 
 ```bash
-cd srsran_open5gs
 # base image with the sparse channel block
-docker build -t localhost/srsue-sparse:gr38-v1 -f containers/srsue-channel/Dockerfile .
+sudo docker build -t localhost/srsue-sparse:gr38-v1 -f containers/srsue-channel/Dockerfile .
 # live image built on top of it
-docker build -t localhost/srsue-live:gr38-v1 -f containers/srsue-live/Dockerfile .
+sudo docker build -t localhost/srsue-live:gr38-v1 -f containers/srsue-live/Dockerfile .
 # make the live image visible to the cluster's containerd
-docker save localhost/srsue-live:gr38-v1 | sudo ctr -n k8s.io images import -
+sudo docker save localhost/srsue-live:gr38-v1 | sudo ctr -n k8s.io images import -
 ```
 
 ## Running an evaluation
 
 All commands are run from the `srsran_open5gs/` folder, with the Python
-environment from step 3 active — the tool launches the ray tracer and neural
+environment from step 4 active — the tool launches the ray tracer and neural
 receiver as `python3`, so `sionna`, `torch`, and `mitsuba` must be importable
 there. (To force a specific interpreter regardless of the active environment,
 pass `--set host_python=/path/to/python`.) The tool has four steps:
 
 ```bash
-cd srsran_open5gs
-source ~/sionna-env/bin/activate   # the env from step 3
+source ~/sionna-env/bin/activate   # the env from step 4
 
 # 1. Check the configuration is valid (no changes made)
 python3 bin/evaluation-experiment.py resolve experiments/studies/neural-base.json --output /tmp/resolved.json
