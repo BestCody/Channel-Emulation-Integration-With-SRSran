@@ -1,8 +1,7 @@
 # Channel Emulation for srsRAN
 
-This project lets you run a small 5G network entirely in software and test it
-over **realistic radio channels** that are computed with ray tracing instead of
-real antennas. It connects three existing tools:
+This project lets you run a 5G network and test it
+over **realistic radio channels** that are computed with ray tracing. It uses the tools:
 
 - **srsRAN** — a software 5G base station (gNB) and phone (UE).
 - **Open5GS** — a software 5G core network.
@@ -13,17 +12,15 @@ real antennas. It connects three existing tools:
 ## What you need
 
 - A machine running **Ubuntu 22.04**.
-- An **NVIDIA GPU** with recent drivers and CUDA (used for the channel math and
-  the neural receiver).
+- An **NVIDIA GPU** with recent drivers and CUDA
 - **Python 3.11**.
-- A Kubernetes storage class named **`longhorn`** for MongoDB's persistent
-  volume, or an edited MongoDB overlay that uses a storage class available on
-  your cluster.
+- A Kubernetes storage class named **`longhorn`** 
+  volume
 
 ## Setting it up after cloning
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/BestCody/channel-emulation-integration-with-srs-ran
 cd sionna-srsran
 ```
 
@@ -127,9 +124,7 @@ Command-specific flags are noted in the table.
 
 ### Changing settings from the terminal
 
-You can override almost any value without editing files. Each override is
-`KEY=VALUE`, and values are read as JSON (so `true`, `2`, `[1,0,2]`, `"box"`).
-You can repeat any of these flags to set several values.
+You can change the following values from terminal when evaluating:
 
 **`--set` — run and network settings**
 
