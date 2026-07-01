@@ -10,29 +10,6 @@ real antennas. It connects three existing tools:
   bounces around a scene (walls, reflections, distance) and arrives at the
   receiver.
 
-## What it actually does
-
-The base station and the phone don't use real antennas. They exchange their
-radio samples over a local network link (ZeroMQ), like a virtual cable. This
-project inserts a small program in the middle of that cable. For every scene we
-ask Sionna, *"if the signal travelled through this room, how would it come out
-the other side?"* Sionna returns a set of numbers (the channel), and the program
-multiplies the passing signal by those numbers on the GPU. The base station and
-phone behave exactly as if they were really transmitting through that room.
-
-On top of this, there is an **evaluation tool** that runs the whole thing for
-you: it sets up the radio, applies the channel, sends test traffic (pings),
-records what happened, and writes the results to a folder. It can also measure
-link quality with a small neural receiver.
-
-```
-  gNB (srsRAN) <--- virtual cable ---> [ channel program ] <---> UE (srsRAN)
-                                              ^
-                                              |
-                                     channel numbers from
-                                      Sionna ray tracing
-```
-
 ## What you need
 
 - A machine running **Ubuntu 22.04**.
