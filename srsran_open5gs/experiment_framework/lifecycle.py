@@ -288,7 +288,7 @@ class ResourceMonitor:
                     monitor_config.get("nvidia_smi", "nvidia-smi"),
                     "--query-gpu=timestamp,index,uuid,utilization.gpu,utilization.memory,memory.used,power.draw,temperature.gpu",
                     "--format=csv",
-                    "-lms", str(monitor_config.get("gpu_query_interval_ms", 100)),
+                    "-lms", str(monitor_config.get("gpu_query_interval_ms", 1000)),
                 ],
                 self.lifecycle.repo_root,
                 monitoring / "gpu.csv",
