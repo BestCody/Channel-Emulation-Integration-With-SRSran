@@ -14,13 +14,14 @@ over **realistic radio channels** that are computed with ray tracing. It uses th
 - A machine running **Ubuntu 22.04**.
 - An **NVIDIA GPU** with recent drivers and CUDA
 - **Python 3.11**.
-- A Kubernetes storage class named **`longhorn`** 
-  volume
+- A Kubernetes storage class named **`longhorn`** for MongoDB's persistent
+  volume, or an edited MongoDB overlay that uses a storage class available on
+  your cluster.
 
 ## Setting it up after cloning
 
 ```bash
-git clone https://github.com/BestCody/channel-emulation-integration-with-srs-ran
+git clone https://github.com/BestCody/channel-emulation-integration-with-srs-ran sionna-srsran
 cd sionna-srsran
 ```
 
@@ -82,12 +83,35 @@ kubectl get pods -n open5gs
 
 You should see the Open5GS core, the gNB, and the UE pods in `Running` state.
 
-## Running an evaluation
-
-All commands are run from the `srsran_open5gs/` folder. The tool has four steps:
+**5. Build the live-channel UE image.**
+Live-channel runs use a custom UE image with the `gr-sionna-channel` CUDA block
+compiled in. The `srsue-live` overlay pins it to `localhost/srsue-live:gr38-v1`
+with `imagePullPolicy: Never`, so it must be built and imported into the
+cluster's containerd **before** running — otherwise the UE pod fails with
+`ErrImageNeverPull`. There is no build script; build the base image, then the
+live image, then import it:
 
 ```bash
 cd srsran_open5gs
+# base image with the sparse channel block
+docker build -t localhost/srsue-sparse:gr38-v1 -f containers/srsue-channel/Dockerfile .
+# live image built on top of it
+docker build -t localhost/srsue-live:gr38-v1 -f containers/srsue-live/Dockerfile .
+# make the live image visible to the cluster's containerd
+docker save localhost/srsue-live:gr38-v1 | sudo ctr -n k8s.io images import -
+```
+
+## Running an evaluation
+
+All commands are run from the `srsran_open5gs/` folder, with the Python
+environment from step 3 active — the tool launches the ray tracer and neural
+receiver as `python3`, so `sionna`, `torch`, and `mitsuba` must be importable
+there. (To force a specific interpreter regardless of the active environment,
+pass `--set host_python=/path/to/python`.) The tool has four steps:
+
+```bash
+cd srsran_open5gs
+source ~/sionna-env/bin/activate   # the env from step 3
 
 # 1. Check the configuration is valid (no changes made)
 python3 bin/evaluation-experiment.py resolve experiments/studies/neural-base.json --output /tmp/resolved.json
@@ -162,7 +186,7 @@ Example: `--condition-set propagation.los=true --condition-set propagation.specu
 | `receiver.position` | Phone location as `[x, y, z]` in metres. |
 | `receiver.velocity` | Phone velocity as `[vx, vy, vz]` in m/s. Adds Doppler to the neural-receiver measurement. Default `[0,0,0]` (stationary). |
 | `antenna.pattern` | Antenna shape, e.g. `"iso"` (equal in all directions). |
-| `antenna.polarization` | Antenna polarization: `"V"` or `"H"`. `"cross"` is **not supported right now** 
+| `antenna.polarization` | Antenna polarization: `"V"` or `"H"`. `"cross"` is **not supported right now** — it makes a dual-port (2×2) antenna, but the streaming channel is single-antenna (SISO), so it fails with a coefficient/delay shape mismatch. |
 | `solver.max_depth` | How many bounces to trace (higher = more detail, slower). |
 | `solver.samples_per_src` | How many rays to shoot (higher = more accurate, slower). |
 | `solver.seed` | Random seed for the ray tracing. |
