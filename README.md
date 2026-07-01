@@ -20,7 +20,7 @@ over **realistic radio channels** that are computed with ray tracing. It uses th
 ## Setting it up after cloning
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/BestCody/channel-emulation-integration-with-srs-ran
 cd sionna-srsran
 ```
 
@@ -124,9 +124,7 @@ Command-specific flags are noted in the table.
 
 ### Changing settings from the terminal
 
-You can override almost any value without editing files. Each override is
-`KEY=VALUE`, and values are read as JSON (so `true`, `2`, `[1,0,2]`, `"box"`).
-You can repeat any of these flags to set several values.
+You can change the following values from terminal when evaluating:
 
 **`--set` — run and network settings**
 
