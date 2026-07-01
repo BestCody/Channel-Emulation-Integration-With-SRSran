@@ -39,6 +39,9 @@ link quality with a small neural receiver.
 - An **NVIDIA GPU** with recent drivers and CUDA (used for the channel math and
   the neural receiver).
 - **Python 3.11**.
+- A Kubernetes storage class named **`longhorn`** for MongoDB's persistent
+  volume, or an edited MongoDB overlay that uses a storage class available on
+  your cluster.
 
 ## Setting it up after cloning
 
@@ -53,7 +56,7 @@ kubeadm, Flannel, Multus). It does not deploy the 5G network itself.
 
 ```bash
 cd srsran_open5gs/testbed-automator
-sudo ./install.sh
+./install.sh
 cd ..
 ```
 
@@ -61,11 +64,12 @@ cd ..
 These are applied as Kubernetes overlays. Apply the core first, then the radio:
 
 ```bash
-kubectl apply -k configs/open5gs/networks5g   # virtual networks
-kubectl apply -k configs/open5gs/mongodb       # subscriber database
-kubectl apply -k configs/open5gs/open5gs       # 5G core network
-kubectl apply -k configs/srsRAN/srsran-gnb     # base station (gNB)
-kubectl apply -k configs/ues/srsue             # phone (UE)
+kubectl create namespace open5gs --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n open5gs -k configs/open5gs/networks5g   # virtual networks
+kubectl apply -n open5gs -k configs/open5gs/mongodb       # subscriber database
+kubectl apply -n open5gs -k configs/open5gs/open5gs       # 5G core network
+kubectl apply -n open5gs -k configs/srsRAN/srsran-gnb     # base station (gNB)
+kubectl apply -n open5gs -k configs/ues/srsue             # phone (UE)
 ```
 
 The phone must be registered as a subscriber in the core before it can connect.
@@ -75,21 +79,21 @@ database. Run this from the `mongo-tools` folder — it opens a temporary
 connection to the database and inserts the subscribers:
 
 ```bash
-pip install pymongo
+python3 -m pip install pymongo
 cd configs/open5gs/mongo-tools
 python3 modify-subscribers.py add
+python3 list-subscribers.py
 cd ../../..
 ```
 
-To check it worked, run `python3 list-subscribers.py` from the same folder; it
-prints the registered phones.
+The list command prints the registered phones.
 
 **3. Create the Python environment for the ray tracing and neural receiver.**
 These run on the host (not inside Kubernetes) because they use the GPU. There is
 no requirements file yet; install the packages the code expects:
 
 ```bash
-python3 -m venv ~/sionna-env
+python3.11 -m venv ~/sionna-env
 source ~/sionna-env/bin/activate
 pip install "sionna==2.0.1" "sionna-rt==2.0.1" pyzmq numpy
 # Install a CUDA build of PyTorch that matches your GPU/driver:
@@ -133,13 +137,14 @@ hand — you override values from the terminal instead, as shown below.
 
 ## Terminal options
 
-These flags go on the `resolve`, `plan`, and `run` commands.
+The override flags below go on the `resolve`, `plan`, and `run` commands.
+Command-specific flags are noted in the table.
 
 | Option | What it does |
 |---|---|
 | `<study file>` | Path to the study JSON to run (required, first argument). |
-| `--namespace` | The Kubernetes namespace the network runs in (usually `open5gs`). |
-| `--confirm-live` | Required for `run`. Confirms you understand it will start the radio and change the cluster. Without it, nothing runs. |
+| `--namespace` | (`run` only) The Kubernetes namespace the network runs in (usually `open5gs`). |
+| `--confirm-live` | (`run` only) Confirms you understand it will start the radio and change the cluster. Without it, nothing runs. |
 | `--parameters FILE` | Load extra settings from another JSON file. Can be given more than once. |
 | `--output FILE` | (`resolve` only) Where to write the checked, fully-expanded config. |
 
