@@ -185,7 +185,7 @@ Example: `--condition-set propagation.los=true --condition-set propagation.specu
 | `receiver.position` | Phone location as `[x, y, z]` in metres. |
 | `receiver.velocity` | Phone velocity as `[vx, vy, vz]` in m/s. Adds Doppler to the neural-receiver measurement. Default `[0,0,0]` (stationary). |
 | `antenna.pattern` | Antenna shape, e.g. `"iso"` (equal in all directions). |
-| `antenna.polarization` | Antenna polarization: `"V"`, `"H"`, or `"cross"`. |
+| `antenna.polarization` | Antenna polarization: `"V"` or `"H"`. `"cross"` is **not supported right now** 
 | `solver.max_depth` | How many bounces to trace (higher = more detail, slower). |
 | `solver.samples_per_src` | How many rays to shoot (higher = more accurate, slower). |
 | `solver.seed` | Random seed for the ray tracing. |
@@ -206,8 +206,8 @@ Example: `--profile-set final_ping.count=20`
 
 ### A full example
 
-Run one line-of-sight test with reflections, in the Munich scene, using
-a cross-polarized antenna and 20 final pings:
+Run one line-of-sight test with reflections, in the Munich scene, with the
+phone moving at 10 m/s and 20 final pings:
 
 ```bash
 python3 bin/evaluation-experiment.py run experiments/studies/neural-base.json \
@@ -215,7 +215,7 @@ python3 bin/evaluation-experiment.py run experiments/studies/neural-base.json \
   --condition-set propagation.los=true \
   --condition-set propagation.specular_reflection=true \
   --scene-set scene='"munich"' \
-  --scene-set antenna.polarization=cross \
+  --scene-set 'receiver.velocity=[10,0,0]' \
   --profile-set final_ping.count=20
 ```
 
