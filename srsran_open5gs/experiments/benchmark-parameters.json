@@ -4,11 +4,7 @@
     "continuous_ping_start_sleep_seconds": 10.0,
     "final_hold_seconds": 5.0,
     "moving_live_timeout_seconds": 300,
-    "noise_command_timeout_seconds": 120,
-    "port_forward_ready_seconds": 10,
-    "stationary_dry_timeout_seconds": 300,
-    "stationary_live_timeout_seconds": 60,
-    "stationary_repeats": 3
+    "port_forward_ready_seconds": 10
   },
   "kubernetes": {
     "amf_selector": "app=open5gs,nf=amf",

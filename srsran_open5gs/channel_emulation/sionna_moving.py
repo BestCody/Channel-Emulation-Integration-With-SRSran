@@ -1,11 +1,11 @@
 import math
 import time
 
-from sionna_stationary import EXPECTED_SIONNA_RT_VERSION
-from sionna_stationary import EXPECTED_SIONNA_VERSION
-from sionna_stationary import EXPECTED_VARIANT
-from sionna_stationary import _complex_array
-from sionna_stationary import _solver_options
+from sionna_scene import EXPECTED_SIONNA_RT_VERSION
+from sionna_scene import EXPECTED_SIONNA_VERSION
+from sionna_scene import EXPECTED_VARIANT
+from sionna_scene import _complex_array
+from sionna_scene import _solver_options
 from sionna_taps import convert_paths
 from trajectory import SPEED_OF_LIGHT
 

@@ -10,7 +10,7 @@ from .settings import _deep_merge, load_benchmark_parameters, parameter_sources,
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-# Effects default off, mirror list in sionna_stationary.py
+# Effects default off, mirror list in sionna_scene.py
 PROPAGATION_EFFECTS = (
     "los",
     "specular_reflection",
@@ -29,7 +29,6 @@ SOLVER_TUNING_KEYS = {
     "seed",
 }
 SOLVER_KEYS = set(PROPAGATION_EFFECTS) | SOLVER_TUNING_KEYS
-MOBILITY = {"static", "moving"}
 # Throughput always deferred: no user-plane endpoint
 DEFERRED_THROUGHPUT = {
     "status": "deferred",
@@ -163,22 +162,8 @@ def validate_condition(condition, condition_path, parameters):
     if unknown:
         raise ConfigError(f"condition {condition_id} has unknown propagation keys: {sorted(unknown)}")
 
-    mobility = condition.setdefault("mobility", "static")
-    if mobility not in MOBILITY:
-        raise ConfigError(f"condition {condition_id} mobility must be one of {sorted(MOBILITY)}")
-    if mobility == "moving" and not condition.get("trajectory"):
-        raise ConfigError(f"moving condition {condition_id} requires a trajectory")
-    if mobility == "static" and condition.get("trajectory"):
-        raise ConfigError(f"static condition {condition_id} must not define a trajectory")
-
-    noise = condition.get("noise", {})
-    if not isinstance(noise, dict):
-        raise ConfigError(f"condition {condition_id} noise must be an object")
-    if noise.get("enabled"):
-        if mobility != "static":
-            raise ConfigError(f"noise sweep requires a static condition: {condition_id}")
-        if not noise.get("profile"):
-            raise ConfigError(f"noise sweep condition {condition_id} requires noise.profile")
+    if not condition.get("trajectory"):
+        raise ConfigError(f"condition {condition_id} requires a trajectory")
 
     validate_throughput(condition)
     _format_launcher(condition, parameters)
@@ -242,10 +227,7 @@ def resolve_condition(
 
     artifacts = [resolved["configuration"], source_record(profile_path)]
     add_artifact(resolved, "scene", artifacts)
-    if resolved.get("mobility") == "moving":
-        add_artifact(resolved, "trajectory", artifacts)
-    if (resolved.get("noise") or {}).get("enabled"):
-        add_nested_artifact(resolved, ("noise", "profile"), "noise_profile_resolved", artifacts)
+    add_artifact(resolved, "trajectory", artifacts)
     resolved["input_artifacts"] = artifacts
     return resolved
 

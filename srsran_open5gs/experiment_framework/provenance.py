@@ -81,7 +81,6 @@ def collect_provenance(output_dir, repo_root, resolved_study, parameters=None):
         repo_root / "channel_emulation",
         repo_root / "configs/ues/srsue",
         repo_root / "configs/ues/srsue-live",
-        repo_root / "configs/ues/srsue-noise",
         repo_root / "configs/srsRAN",
         repo_root / "containers",
         repo_root / "gr-sionna-channel",

@@ -26,24 +26,11 @@ def condition_plan(condition, parameters=None):
         f"resolve scene {condition['scene']} with propagation {effects}",
         f"start kubectl port-forward on {port_forward}",
     ]
-    if (condition.get("noise") or {}).get("enabled"):
-        return actions + [
-            "run and validate stationary Sionna dry calculation",
-            "calibrate signal power during active traffic",
-            "sweep configured SNR levels until sustained attachment loss",
-            "return noise to zero before restoration",
-        ]
-    if condition.get("mobility") == "moving":
-        return actions + [
-            "run and validate complete moving-channel dry run",
-            "activate position zero before establishing movement epoch",
-            "run trajectory positions at fixed targets without restarts",
-            "skip late positions and record continuous ping",
-        ]
     return actions + [
-        "run and validate stationary Sionna dry calculation",
-        "send absolute taps and record ACK and activation timing",
-        "record ping while the channel remains active",
+        "run and validate complete moving-channel dry run",
+        "activate position zero before establishing movement epoch",
+        "run trajectory positions at fixed targets without restarts",
+        "skip late positions and record continuous ping",
     ]
 
 

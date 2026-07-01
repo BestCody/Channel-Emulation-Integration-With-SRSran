@@ -6,7 +6,8 @@
   },
   "receiver": {
     "name": "ue",
-    "position": [2.0, 0.0, 1.5]
+    "position": [2.0, 0.0, 1.5],
+    "velocity": [0.0, 0.0, 0.0]
   },
   "placement": {
     "mode": "configured",

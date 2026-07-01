@@ -170,7 +170,6 @@ Example: `--set radio.ue_number=2 --set trials_per_condition=3`
 | `propagation.diffuse_reflection` | Turn on scattered reflections off rough surfaces. |
 | `propagation.refraction` | Turn on signal bending through materials. |
 | `propagation.diffraction` | Turn on bending around edges. |
-| `mobility` | `static` (fixed positions) or `moving` (follows a path over time). |
 | `throughput.status` | `neural_receiver` to measure link throughput, or `deferred` to skip it. |
 
 By default every propagation effect is off; you switch on the ones you want.
@@ -184,6 +183,7 @@ Example: `--condition-set propagation.los=true --condition-set propagation.specu
 | `scene` | Which built-in Sionna room to use, e.g. `"box"` or `"munich"`. |
 | `transmitter.position` | Base station location as `[x, y, z]` in metres. |
 | `receiver.position` | Phone location as `[x, y, z]` in metres. |
+| `receiver.velocity` | Phone velocity as `[vx, vy, vz]` in m/s. Adds Doppler to the neural-receiver measurement. Default `[0,0,0]` (stationary). |
 | `antenna.pattern` | Antenna shape, e.g. `"iso"` (equal in all directions). |
 | `antenna.polarization` | Antenna polarization: `"V"`, `"H"`, or `"cross"`. |
 | `solver.max_depth` | How many bounces to trace (higher = more detail, slower). |
@@ -206,7 +206,7 @@ Example: `--profile-set final_ping.count=20`
 
 ### A full example
 
-Run one static line-of-sight test with reflections, in the Munich scene, using
+Run one line-of-sight test with reflections, in the Munich scene, using
 a cross-polarized antenna and 20 final pings:
 
 ```bash

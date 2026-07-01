@@ -18,9 +18,9 @@ from channel_protocol import build_update  # noqa: E402
 from channel_protocol import validate_taps  # noqa: E402
 from sionna_moving import MovingSionnaScene  # noqa: E402
 from sionna_radio_config import load_radio_config  # noqa: E402
-from sionna_stationary import load_scene_config  # noqa: E402
-from sionna_stationary import sample_ue_positions  # noqa: E402
-from sionna_stationary import scene_bounding_box  # noqa: E402
+from sionna_scene import load_scene_config  # noqa: E402
+from sionna_scene import sample_ue_positions  # noqa: E402
+from sionna_scene import scene_bounding_box  # noqa: E402
 from sionna_taps import interpolate_taps  # noqa: E402
 from sionna_taps import taps_from_report  # noqa: E402
 from trajectory import load_trajectory  # noqa: E402

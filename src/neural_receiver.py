@@ -24,7 +24,7 @@ from sionna.phy.channel import ApplyOFDMChannel
 # Reuse the evaluation system's parameter loaders
 FRAMEWORK = pathlib.Path(__file__).resolve().parents[1] / "srsran_open5gs"
 sys.path.insert(0, str(FRAMEWORK / "channel_emulation"))
-from sionna_stationary import (  # noqa: E402
+from sionna_scene import (  # noqa: E402
     load_scene_config,
     sample_ue_positions,
     scene_bounding_box,
@@ -96,7 +96,16 @@ def channel_from_scene_config(config, carrier_hz, num_samples=None):
     transmitter = Transmitter(
         name="gnb", position=config["transmitter"]["position"]
     )
-    receiver = Receiver(name="ue", position=config["receiver"]["position"])
+    # UE velocity drives per-symbol Doppler below
+    velocity = config["receiver"].get("velocity") or [0.0, 0.0, 0.0]
+    velocity = [float(component) for component in velocity]
+    if len(velocity) != 3:
+        raise ValueError("receiver velocity must have three components")
+    receiver = Receiver(
+        name="ue",
+        position=config["receiver"]["position"],
+        velocity=velocity,
+    )
     transmitter.look_at(receiver)
     receiver.look_at(transmitter)
     scene.add(transmitter)
@@ -112,8 +121,9 @@ def channel_from_scene_config(config, carrier_hz, num_samples=None):
     paths = solver(scene, **options)
     dr.sync_thread()
 
+    # one time step per OFDM symbol for real Doppler
     a, tau = paths.cir(
-        sampling_frequency = RESOURCE_GRID.bandwidth,
+        sampling_frequency = 1.0 / RESOURCE_GRID.ofdm_symbol_duration,
         num_time_steps     = RESOURCE_GRID.num_ofdm_symbols,
         out_type           = "numpy",
     )
@@ -338,6 +348,9 @@ def run_evaluation(args, radio):
             "ue_index": ue_index,
             "transmitter": config["transmitter"]["position"],
             "receiver": config["receiver"]["position"],
+            "receiver_velocity": config["receiver"].get(
+                "velocity", [0.0, 0.0, 0.0]
+            ),
             "num_bs_ant": num_bs_ant,
             "ber": ber,
             "throughput": throughput,

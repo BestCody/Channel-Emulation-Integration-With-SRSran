@@ -161,11 +161,7 @@ def summarize_run(run_root):
         })
     write_json(summary_dir / "conditions.json", conditions)
 
-    channel_taps = []
-    channel_updates = []
-    sionna_timings = []
     moving_positions = []
-    noise_levels = []
     neural_ber = []
     neural_throughput = []
     failures = []
@@ -177,37 +173,6 @@ def summarize_run(run_root):
         result_path = trial_path / "condition/result.json"
         if result_path.exists():
             result = json.loads(result_path.read_text(encoding="utf-8"))
-            channel = result.get("channel")
-            if isinstance(channel, dict):
-                for ue in channel.get("ues", []):
-                    ue_index = ue.get("ue_index")
-                    timing = ue.get("timing_ms", {})
-                    sionna_timings.append({
-                        "condition_id": condition_id,
-                        "trial_number": trial_number,
-                        "position_index": None,
-                        "ue_index": ue_index,
-                        "solve_ms": timing.get("warm_solve_average"),
-                        "conversion_ms": timing.get("conversion"),
-                        "total_ms": None,
-                    })
-                    for tap in ue.get("conversion", {}).get("retained_taps", []):
-                        channel_taps.append({
-                            "condition_id": condition_id,
-                            "trial_number": trial_number,
-                            "position_index": None,
-                            "ue_index": ue_index,
-                            **tap,
-                        })
-                for streamed in channel.get("streamed", []):
-                    channel_updates.append({
-                        "condition_id": condition_id,
-                        "trial_number": trial_number,
-                        "position_index": None,
-                        "ue_index": streamed.get("ue_index"),
-                        "sequence": streamed.get("sequence"),
-                        "tap_count": streamed.get("tap_count"),
-                    })
             moving = result.get("live")
             if isinstance(moving, dict) and isinstance(moving.get("records"), list):
                 # Interpolated CIR stream rows
@@ -220,18 +185,6 @@ def summarize_run(run_root):
                         "alpha": record.get("alpha"),
                         "tap_count": record.get("tap_count"),
                     })
-            for level in result.get("levels", []):
-                # Record frozen-plan noise sigma
-                frozen = level.get("apply", {}).get("frozen_level", {})
-                noise_levels.append({
-                    "condition_id": condition_id,
-                    "trial_number": trial_number,
-                    "target_snr_db": level.get("target_snr_db"),
-                    "downlink_applied_sigma": frozen.get("downlink", {}).get("noise_sigma"),
-                    "uplink_applied_sigma": frozen.get("uplink", {}).get("noise_sigma"),
-                    "packet_loss_percent": level.get("ping", {}).get("packet_loss_percent"),
-                    "sustained_attachment_loss": level.get("sustained_attachment_loss"),
-                })
             neural = result.get("neural_receiver")
             if isinstance(neural, dict):
                 # Per-UE neural-receiver link curves
@@ -284,11 +237,7 @@ def summarize_run(run_root):
                 })
 
     table_specs = [
-        ("channel-taps.csv", channel_taps),
-        ("channel-updates.csv", channel_updates),
-        ("sionna-timings.csv", sionna_timings),
         ("moving-positions.csv", moving_positions),
-        ("noise-levels.csv", noise_levels),
         ("neural-receiver-ber.csv", neural_ber),
         ("neural-receiver-throughput.csv", neural_throughput),
         ("failures.csv", failures),
@@ -304,8 +253,6 @@ def summarize_run(run_root):
 
     dot_plot(summary_dir / "plots/packet-loss.svg", "Packet loss by individual trial", rows, "packet_loss_percent", "Packet loss (%)")
     dot_plot(summary_dir / "plots/rtt-mean.svg", "Mean ping RTT by individual trial", rows, "rtt_mean_ms", "RTT (ms)")
-    dot_plot(summary_dir / "plots/sionna-solve.svg", "Sionna solve time", sionna_timings, "solve_ms", "Solve time (ms)")
-    line_plot(summary_dir / "plots/noise-loss.svg", "Packet loss versus target SNR", noise_levels, "target_snr_db", "packet_loss_percent", "Target SNR (dB)", "Packet loss (%)")
     dot_plot(summary_dir / "plots/cpu.svg", "CPU by individual process sample", resources, "cpu_percent", "CPU (%)")
     dot_plot(summary_dir / "plots/gpu-utilization.svg", "GPU utilization samples", gpu_samples, "gpu_utilization_percent", "GPU utilization (%)")
     line_plot(summary_dir / "plots/amf-memory.svg", "AMF memory during pilot", amf_samples, "time_ns", "memory_current", "Time (ns)", "Memory (bytes)")
@@ -319,11 +266,7 @@ def summarize_run(run_root):
     return {
         "trial_rows": rows,
         "conditions": conditions,
-        "channel_taps": channel_taps,
-        "channel_updates": channel_updates,
-        "sionna_timings": sionna_timings,
         "moving_positions": moving_positions,
-        "noise_levels": noise_levels,
         "neural_ber": neural_ber,
         "neural_throughput": neural_throughput,
         "failures": failures,

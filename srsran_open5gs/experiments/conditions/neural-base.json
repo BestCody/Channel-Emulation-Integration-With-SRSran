@@ -6,7 +6,6 @@
   "launcher": "/srsran/config/start_gnu_live_channel.sh {ue_number}",
   "scene": "channel_emulation/scenes/default_scene.json",
   "propagation": {},
-  "mobility": "moving",
   "trajectory": "channel_emulation/trajectories/default_trajectory.json",
   "throughput": {
     "status": "neural_receiver"

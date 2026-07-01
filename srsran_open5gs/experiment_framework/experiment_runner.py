@@ -272,29 +272,6 @@ class PilotRunner:
             ],
         }
 
-    def stationary_channel(self, condition, trial_dir, trial_number, scene_path):
-        channel_dir = pathlib.Path(trial_dir) / "condition/channel"
-        result_path = channel_dir / "stationary-channel.json"
-        timeout = float(self.channel.get("stationary_dry_timeout_seconds", 300)) + float(
-            self.channel.get("stationary_live_timeout_seconds", 60)
-        )
-        self.run_host(
-            [
-                self.host_python,
-                str(REPO_ROOT / "channel_emulation/stationary_sionna_controller.py"),
-                "--scene-config", scene_path,
-                "--output", str(result_path),
-                "--num-ues", str(self.lifecycle.num_ues),
-                "--repeats", str(self.channel.get("stationary_repeats", 3)),
-                "--endpoint", CONTROL_ENDPOINT,
-                "--stream-endpoint", STREAM_ENDPOINT,
-                *self._placement_args(condition, trial_number),
-            ],
-            channel_dir / "stationary-channel.log",
-            timeout=timeout,
-        )
-        return json.loads(result_path.read_text(encoding="utf-8"))
-
     def _resolve_scene(self, condition, trial_dir):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
         source = pathlib.Path(condition["scene_resolved"]["absolute_path"])
@@ -323,21 +300,6 @@ class PilotRunner:
             )
             pings.append({"ue_index": ue_index, "ping": ping})
         return pings
-
-    def run_static(self, condition, trial_dir, trial_number, scene_path):
-        self.start_port_forward(trial_dir)
-        self.start_continuous_ping()
-        channel = self.stationary_channel(condition, trial_dir, trial_number, scene_path)
-        self.checked_sleep(float(self.channel.get("continuous_ping_start_sleep_seconds", 10.0)))
-        continuous = self.stop_continuous_ping(trial_dir)
-        final = condition["measurement_profile_resolved"]["values"]["final_ping"]
-        pings = self.final_ping_per_ue(trial_dir, final)
-        return {
-            "channel": channel,
-            "continuous_ping": continuous,
-            "ping": pings[0]["ping"],
-            "pings": pings,
-        }
 
     def run_moving(self, condition, trial_dir, trial_number, scene_path):
         self.start_port_forward(trial_dir)
@@ -370,114 +332,6 @@ class PilotRunner:
             "pings": pings,
         }
 
-    def noise_command(self, arguments, output, log, timeout=None):
-        self.run_host(
-            [
-                self.host_python,
-                str(REPO_ROOT / "channel_emulation/noise_sweep_controller.py"),
-                "--endpoint", CONTROL_ENDPOINT,
-                "--stream-endpoint", STREAM_ENDPOINT,
-                *arguments,
-                "--output", str(output),
-            ],
-            log,
-            timeout=timeout or float(self.channel.get("noise_command_timeout_seconds", 120)),
-        )
-        return json.loads(pathlib.Path(output).read_text(encoding="utf-8"))
-
-    def run_noise(self, condition, trial_dir, trial_number, scene_path):
-        self.start_port_forward(trial_dir)
-        channel = self.stationary_channel(condition, trial_dir, trial_number, scene_path)
-        channel_dir = pathlib.Path(trial_dir) / "condition/channel"
-        traffic_dir = pathlib.Path(trial_dir) / "condition/traffic"
-        profile = json.loads(pathlib.Path(condition["noise_profile_resolved"]["absolute_path"]).read_text(encoding="utf-8"))
-        self.lifecycle.start_background_ping(
-            self.lifecycle.logs["calibration_ping"],
-            interval=float(self.channel.get("signal_calibration_ping_interval_seconds", 0.02)),
-            count=int(self.channel.get("signal_calibration_ping_count", 400)),
-            deadline=None,
-        )
-        calibration = self.noise_command(
-            [
-                "calibrate",
-                "--duration", str(self.channel.get("signal_calibration_duration_seconds", 5.0)),
-                "--interval", str(self.channel.get("signal_calibration_interval_seconds", 0.05)),
-            ],
-            channel_dir / "signal-calibration.json",
-            channel_dir / "signal-calibration.log",
-        )
-        levels_text = ",".join(str(value) for value in profile["levels_db"])
-        plan = channel_dir / "frozen-noise-plan.json"
-        self.run_host(
-            [
-                self.host_python,
-                str(REPO_ROOT / "channel_emulation/noise_sweep_controller.py"),
-                "plan",
-                "--signal-calibration", str(channel_dir / "signal-calibration.json"),
-                "--levels", levels_text,
-                "--output", str(plan),
-            ],
-            channel_dir / "noise-plan.log",
-        )
-        level_results = []
-        first_failure = None
-        try:
-            for level in profile["levels_db"]:
-                apply_result = self.noise_command(
-                    ["apply", "--plan", str(plan), "--snr-db", str(level)],
-                    channel_dir / f"level-{level}-apply.json",
-                    channel_dir / f"level-{level}-apply.log",
-                )
-                self.checked_sleep(profile["settle_seconds"])
-                # Open-loop noise status, not measured SNR
-                status = self.noise_command(
-                    ["status"],
-                    channel_dir / f"level-{level}-status.json",
-                    channel_dir / f"level-{level}-status.log",
-                )
-                ping = self.lifecycle.ping(
-                    traffic_dir / f"level-{level}-ping.txt",
-                    count=profile["measurement_ping_count"],
-                    interval=profile["measurement_ping_interval_seconds"],
-                    deadline=1,
-                )
-                sustained = False
-                confirmation = None
-                if ping["packet_loss_percent"] == 100.0:
-                    confirmation = self.lifecycle.ping(
-                        traffic_dir / f"level-{level}-confirmation-ping.txt",
-                        count=profile["attachment_loss_confirmation_ping_count"],
-                        interval=profile["attachment_loss_confirmation_ping_interval_seconds"],
-                        deadline=1,
-                    )
-                    sustained = confirmation["packet_loss_percent"] == 100.0
-                level_results.append({
-                    "target_snr_db": level,
-                    "apply": apply_result,
-                    "status": status,
-                    "ping": ping,
-                    "confirmation_ping": confirmation,
-                    "sustained_attachment_loss": sustained,
-                })
-                if sustained:
-                    first_failure = level
-                    break
-        finally:
-            self.noise_command(
-                ["off"],
-                channel_dir / "noise-off.json",
-                channel_dir / "noise-off.log",
-            )
-        return {
-            "channel": channel,
-            "signal_calibration": calibration,
-            "noise_plan": json.loads(plan.read_text(encoding="utf-8")),
-            "levels": level_results,
-            "first_failing_level": first_failure,
-            "ping": level_results[-1]["ping"] if level_results else None,
-            "throughput": self.throughput_record(),
-        }
-
     def run_neural(self, condition, trial_dir, trial_number, scene_path):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
         output = channel_dir / "neural-receiver.json"
@@ -497,12 +351,7 @@ class PilotRunner:
 
     def run_channel(self, condition, trial_dir, trial_number):
         scene_path = self._resolve_scene(condition, trial_dir)
-        if (condition.get("noise") or {}).get("enabled"):
-            result = self.run_noise(condition, trial_dir, trial_number, scene_path)
-        elif condition.get("mobility") == "moving":
-            result = self.run_moving(condition, trial_dir, trial_number, scene_path)
-        else:
-            result = self.run_static(condition, trial_dir, trial_number, scene_path)
+        result = self.run_moving(condition, trial_dir, trial_number, scene_path)
         if condition.get("throughput", {}).get("status") == "neural_receiver":
             result["neural_receiver"] = self.run_neural(
                 condition, trial_dir, trial_number, scene_path
