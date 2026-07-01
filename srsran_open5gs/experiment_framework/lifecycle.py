@@ -467,11 +467,24 @@ class KubernetesLifecycle:
 
     def wait_no_ue(self, timeout=None):
         timeout = float(timeout or self.timeouts.get("ue_wait_gone_seconds", 180))
-        deadline = time.monotonic() + timeout
+        # srsUE ignores SIGTERM; force-delete after this window
+        force_after = float(self.timeouts.get("ue_force_delete_after_seconds", 15))
+        started = time.monotonic()
+        deadline = started + timeout
+        forced = False
         while time.monotonic() < deadline:
-            value = self.capture("get", "pods", "-n", self.namespace, "-l", self.ue_selector, "--no-headers", check=False)
+            # -o name is empty when gone; --no-headers writes
+            # "No resources found" to stderr and fools the check
+            value = self.capture("get", "pods", "-n", self.namespace, "-l", self.ue_selector, "-o", "name", check=False)
             if not value.strip():
                 return
+            if not forced and time.monotonic() - started >= force_after:
+                self.capture(
+                    "delete", "pods", "-n", self.namespace, "-l", self.ue_selector,
+                    "--grace-period=0", "--force", "--wait=false",
+                    check=False,
+                )
+                forced = True
             time.sleep(1)
         raise CommandFailure("UE pod did not disappear")
 
@@ -610,7 +623,17 @@ class KubernetesLifecycle:
             self.executor.run(self.kubectl("wait", "--for=condition=Ready", "pod", "-l", self.ue_selector, "-n", self.namespace, f"--timeout={rollout}s"), output_dir / "ready.log", timeout=rollout + 10)
         restored = self.current_state()
         write_json(output_dir / "restored-state.json", asdict(restored))
-        if restored != self.original:
+        # configMapGenerator appends a content hash; a live baseline
+        # can predate repo config, so match the base name not the hash
+        def cm_base(name):
+            return name.rsplit("-", 1)[0] if name else name
+        restored_ok = (
+            restored.replicas == self.original.replicas
+            and restored.image == self.original.image
+            and restored.pull_policy == self.original.pull_policy
+            and cm_base(restored.configmap) == cm_base(self.original.configmap)
+        )
+        if not restored_ok:
             raise CommandFailure(f"restored deployment differs from original: {restored} != {self.original}")
         self.ue_pod = None
         self.gnb_pod = None

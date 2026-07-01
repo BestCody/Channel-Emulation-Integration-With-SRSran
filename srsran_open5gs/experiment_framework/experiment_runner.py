@@ -49,6 +49,11 @@ def _stream_endpoint(channel):
     return channel.get("stream_endpoint", "tcp://127.0.0.1:5556")
 
 
+# Neural-receiver link evaluation lives alongside the repo
+NEURAL_RECEIVER = REPO_ROOT.parent / "src" / "neural_receiver.py"
+NEURAL_RECEIVER_TIMEOUT = 3600.0
+
+
 class StudyLock:
     def __init__(self, result_root):
         self.path = pathlib.Path(result_root) / ".evaluation.lock"
@@ -250,6 +255,28 @@ class PilotRunner:
 
     def throughput_record(self):
         return dict(DEFERRED_THROUGHPUT)
+
+    def _throughput_summary(self, result):
+        neural = result.get("neural_receiver")
+        if not neural:
+            return dict(DEFERRED_THROUGHPUT)
+        ues = neural.get("ues", [])
+        return {
+            "status": "neural_receiver",
+            "measurement": neural.get("measurement"),
+            "peak_bits_per_slot": max(
+                (ue["peak_throughput_bits_per_slot"] for ue in ues),
+                default=None,
+            ),
+            "per_ue": [
+                {
+                    "ue_index": ue["ue_index"],
+                    "peak_throughput_bits_per_slot": ue["peak_throughput_bits_per_slot"],
+                    "min_ber": ue["min_ber"],
+                }
+                for ue in ues
+            ],
+        }
 
     def stationary_channel(self, condition, trial_dir, trial_number, scene_path):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
@@ -453,13 +480,36 @@ class PilotRunner:
             "throughput": self.throughput_record(),
         }
 
+    def run_neural(self, condition, trial_dir, trial_number, scene_path):
+        channel_dir = pathlib.Path(trial_dir) / "condition/channel"
+        output = channel_dir / "neural-receiver.json"
+        self.run_host(
+            [
+                self.host_python,
+                str(NEURAL_RECEIVER),
+                "--scene-config", scene_path,
+                "--output", str(output),
+                "--num-ues", str(self.lifecycle.num_ues),
+                *self._placement_args(condition, trial_number),
+            ],
+            channel_dir / "neural-receiver.log",
+            timeout=NEURAL_RECEIVER_TIMEOUT,
+        )
+        return json.loads(output.read_text(encoding="utf-8"))
+
     def run_channel(self, condition, trial_dir, trial_number):
         scene_path = self._resolve_scene(condition, trial_dir)
         if (condition.get("noise") or {}).get("enabled"):
-            return self.run_noise(condition, trial_dir, trial_number, scene_path)
-        if condition.get("mobility") == "moving":
-            return self.run_moving(condition, trial_dir, trial_number, scene_path)
-        return self.run_static(condition, trial_dir, trial_number, scene_path)
+            result = self.run_noise(condition, trial_dir, trial_number, scene_path)
+        elif condition.get("mobility") == "moving":
+            result = self.run_moving(condition, trial_dir, trial_number, scene_path)
+        else:
+            result = self.run_static(condition, trial_dir, trial_number, scene_path)
+        if condition.get("throughput", {}).get("status") == "neural_receiver":
+            result["neural_receiver"] = self.run_neural(
+                condition, trial_dir, trial_number, scene_path
+            )
+        return result
 
     def connection_failure_count(self, trial_dir):
         patterns = re.compile(r"error|failed|underflow|overflow|underrun|overrun|timeout|dropped", re.I)
@@ -484,7 +534,7 @@ class PilotRunner:
             "pings": result.get("pings"),
             "connection_failures": 0,
             "amf": self.amf_slice(amf_start),
-            "throughput": self.throughput_record(),
+            "throughput": self._throughput_summary(result),
         }
 
     def run_condition(self, condition, trial_number):

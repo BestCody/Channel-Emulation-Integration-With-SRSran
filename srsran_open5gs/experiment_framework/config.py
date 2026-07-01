@@ -95,14 +95,17 @@ def source_record(path):
     }
 
 
+THROUGHPUT_STATUSES = {"deferred", "neural_receiver"}
+
+
 def validate_throughput(condition):
     throughput = condition.get("throughput")
     if not isinstance(throughput, dict):
         raise ConfigError("every condition requires a throughput object")
-    if throughput.get("status") != "deferred":
+    if throughput.get("status") not in THROUGHPUT_STATUSES:
         raise ConfigError(
             f"throughput status {throughput.get('status')!r} is not supported; "
-            "only 'deferred' is available"
+            f"allowed: {sorted(THROUGHPUT_STATUSES)}"
         )
 
 

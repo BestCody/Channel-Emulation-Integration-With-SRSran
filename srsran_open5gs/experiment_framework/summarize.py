@@ -24,6 +24,7 @@ TRIAL_FIELDS = [
     "amf_restart_count_after",
     "amf_memory_max_bytes",
     "throughput_status",
+    "throughput_peak_bits_per_slot",
 ]
 
 
@@ -43,7 +44,8 @@ def flatten_trial(summary):
         "amf_restart_count_before": summary.get("amf", {}).get("restart_count_before"),
         "amf_restart_count_after": summary.get("amf", {}).get("restart_count_after"),
         "amf_memory_max_bytes": summary.get("amf", {}).get("memory_max_observed"),
-        "throughput_status": "deferred",
+        "throughput_status": summary.get("throughput", {}).get("status", "deferred"),
+        "throughput_peak_bits_per_slot": summary.get("throughput", {}).get("peak_bits_per_slot"),
     }
 
 
@@ -164,6 +166,8 @@ def summarize_run(run_root):
     sionna_timings = []
     moving_positions = []
     noise_levels = []
+    neural_ber = []
+    neural_throughput = []
     failures = []
     resources = []
     gpu_samples = []
@@ -228,6 +232,27 @@ def summarize_run(run_root):
                     "packet_loss_percent": level.get("ping", {}).get("packet_loss_percent"),
                     "sustained_attachment_loss": level.get("sustained_attachment_loss"),
                 })
+            neural = result.get("neural_receiver")
+            if isinstance(neural, dict):
+                # Per-UE neural-receiver link curves
+                for ue in neural.get("ues", []):
+                    ue_index = ue.get("ue_index")
+                    for ebno_db, ber in ue.get("ber", []):
+                        neural_ber.append({
+                            "condition_id": condition_id,
+                            "trial_number": trial_number,
+                            "ue_index": ue_index,
+                            "ebno_db": ebno_db,
+                            "ber": ber,
+                        })
+                    for ebno_db, tput in ue.get("throughput", []):
+                        neural_throughput.append({
+                            "condition_id": condition_id,
+                            "trial_number": trial_number,
+                            "ue_index": ue_index,
+                            "ebno_db": ebno_db,
+                            "throughput_bits_per_slot": tput,
+                        })
         failure_path = trial_path / "failure.json"
         if failure_path.exists():
             failure = json.loads(failure_path.read_text(encoding="utf-8"))
@@ -264,6 +289,8 @@ def summarize_run(run_root):
         ("sionna-timings.csv", sionna_timings),
         ("moving-positions.csv", moving_positions),
         ("noise-levels.csv", noise_levels),
+        ("neural-receiver-ber.csv", neural_ber),
+        ("neural-receiver-throughput.csv", neural_throughput),
         ("failures.csv", failures),
         ("resource-samples.csv", resources),
         ("gpu-samples.csv", gpu_samples),
@@ -282,11 +309,12 @@ def summarize_run(run_root):
     dot_plot(summary_dir / "plots/cpu.svg", "CPU by individual process sample", resources, "cpu_percent", "CPU (%)")
     dot_plot(summary_dir / "plots/gpu-utilization.svg", "GPU utilization samples", gpu_samples, "gpu_utilization_percent", "GPU utilization (%)")
     line_plot(summary_dir / "plots/amf-memory.svg", "AMF memory during pilot", amf_samples, "time_ns", "memory_current", "Time (ns)", "Memory (bytes)")
+    line_plot(summary_dir / "plots/neural-receiver-throughput.svg", "Neural receiver throughput versus Eb/No", neural_throughput, "ebno_db", "throughput_bits_per_slot", "Eb/No (dB)", "Throughput (bits/slot)")
     atomic_write_text(
         summary_dir / "README.txt",
         "Individual trial results are shown in trials.csv.\n"
         "Confidence intervals are intentionally not reported for small trial counts.\n"
-        "Throughput is deferred because no verified user-plane endpoint exists.\n",
+        "Throughput is from the neural receiver when configured, otherwise deferred.\n",
     )
     return {
         "trial_rows": rows,
@@ -296,6 +324,8 @@ def summarize_run(run_root):
         "sionna_timings": sionna_timings,
         "moving_positions": moving_positions,
         "noise_levels": noise_levels,
+        "neural_ber": neural_ber,
+        "neural_throughput": neural_throughput,
         "failures": failures,
         "resources": resources,
         "gpu_samples": gpu_samples,

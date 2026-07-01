@@ -1,3 +1,8 @@
+import argparse
+import json
+import pathlib
+import sys
+
 import sionna.phy
 import sionna.rt
 import torch
@@ -15,14 +20,27 @@ from sionna.phy.mapping import Mapper, BinarySource
 from sionna.rt import load_scene, Transmitter, Receiver, PlanarArray, PathSolver
 from sionna.phy.channel import ApplyOFDMChannel
 
+# Reuse the evaluation system's parameter loaders
+FRAMEWORK = pathlib.Path(__file__).resolve().parents[1] / "srsran_open5gs"
+sys.path.insert(0, str(FRAMEWORK / "channel_emulation"))
+from sionna_stationary import (  # noqa: E402
+    load_scene_config,
+    sample_ue_positions,
+    scene_bounding_box,
+    _solver_options,
+)
+from sionna_radio_config import load_radio_config  # noqa: E402
+
+DEFAULT_SCENE_CONFIG = FRAMEWORK / "channel_emulation/scenes/default_scene.json"
+DEFAULT_GNB_CONFIG = FRAMEWORK / "configs/srsRAN/srsran-gnb/config/srsran-gnb.yaml"
+DEFAULT_UE_CONFIG = FRAMEWORK / "configs/ues/srsue/config/ue0.conf"
+
 sionna.phy.config.seed = 42
 device = sionna.phy.config.device
 
-# Constants
-CARRIER_FREQUENCY       = 2.6e9
+# Receiver PHY (model intrinsics, not eval parameters)
 NUM_UT                  = 1
 NUM_UT_ANT              = 1
-NUM_BS_ANT              = 2
 NUM_BITS_PER_SYMBOL     = 2
 CODERATE                = 0.5
 NUM_STREAMS_PER_TX      = NUM_UT_ANT
@@ -50,66 +68,66 @@ FFT_SIZE         = RESOURCE_GRID.fft_size
 N                = int(RESOURCE_GRID.num_data_symbols * NUM_BITS_PER_SYMBOL)
 K                = int(N * CODERATE)
 
-TX_POSITION = [8.5, 21.0, 27.0]
-RX_POSITION = [45.0, 90.0, 1.5]
-TX_VELOCITY = [1.5, 0.0, 0.0]
-RX_VELOCITY = [0.0, 0.0, 0.0]
 
-EFFECT_CONFIG = dict(specular_reflection=True, diffuse_reflection=True, diffraction=True)
-WEIGHTS_FILE = "weights-all_effects.pt"
-SCENE = sionna.rt.scene.munich
-p_solver = PathSolver()
+def channel_from_scene_config(config, carrier_hz, num_samples=None):
+    # Build the channel from the eval system's resolved scene
+    import drjit as dr
+    from sionna.rt import scene as rt_scene
 
-# Helpers
-def build_scene(scene_ref):
-    scene = load_scene(scene_ref, merge_shapes=True)
-    scene.frequency = CARRIER_FREQUENCY
+    scene_name = config["scene"]
+    scene_path = getattr(rt_scene, scene_name, None)
+    if not isinstance(scene_path, str):
+        raise ValueError(f"unknown bundled scene: {scene_name}")
+
+    scene = load_scene(scene_path)
+    scene.frequency = float(carrier_hz)
+    antenna = config["antenna"]
     scene.tx_array = PlanarArray(
         num_rows=1, num_cols=1,
-        vertical_spacing=0.5, horizontal_spacing=0.5,
-        pattern="tr38901", polarization="V"
+        pattern=antenna["pattern"],
+        polarization=antenna["polarization"],
     )
     scene.rx_array = PlanarArray(
-        num_rows=1, num_cols=int(NUM_BS_ANT / 2),
-        vertical_spacing=0.5, horizontal_spacing=0.5,
-        pattern="tr38901", polarization="cross"
+        num_rows=1, num_cols=1,
+        pattern=antenna["pattern"],
+        polarization=antenna["polarization"],
     )
-    scene.add(Transmitter(name="ut", position=TX_POSITION))
-    scene.add(Receiver(name="bs",   position=RX_POSITION))
-    return scene
-
-def compute_h_freq(scene, effect_config, num_samples=500000):
-    scene.get("ut").velocity = TX_VELOCITY
-    scene.get("bs").velocity = RX_VELOCITY
-
-    paths = p_solver(
-        scene           = scene,
-        max_depth       = 5,
-        samples_per_src = num_samples,
-        los             = True,
-        refraction      = False,
-        seed            = 42,
-        **effect_config
+    transmitter = Transmitter(
+        name="gnb", position=config["transmitter"]["position"]
     )
+    receiver = Receiver(name="ue", position=config["receiver"]["position"])
+    transmitter.look_at(receiver)
+    receiver.look_at(transmitter)
+    scene.add(transmitter)
+    scene.add(receiver)
+
+    # num antennas follows from the antenna polarization parameter
+    num_bs_ant = int(scene.rx_array.num_ant)
+
+    options = _solver_options(config["solver"])
+    if num_samples is not None:
+        options["samples_per_src"] = int(num_samples)
+    solver = PathSolver()
+    paths = solver(scene, **options)
+    dr.sync_thread()
 
     a, tau = paths.cir(
         sampling_frequency = RESOURCE_GRID.bandwidth,
         num_time_steps     = RESOURCE_GRID.num_ofdm_symbols,
-        out_type           = "numpy"
+        out_type           = "numpy",
     )
-
     a   = torch.tensor(a,   dtype=torch.complex64).to(device)
     tau = torch.tensor(tau, dtype=torch.float32).to(device)
-
     if a.dim() == 6:
         a   = a.unsqueeze(0)
         tau = tau.unsqueeze(0)
 
-    num_subcarriers    = RESOURCE_GRID.fft_size
-    subcarrier_spacing = RESOURCE_GRID.subcarrier_spacing
-    freqs = subcarrier_frequencies(num_subcarriers, subcarrier_spacing).to(device)
+    freqs = subcarrier_frequencies(
+        RESOURCE_GRID.fft_size, RESOURCE_GRID.subcarrier_spacing
+    ).to(device)
+    h_freq = cir_to_ofdm_channel(freqs, a, tau, normalize=True)
+    return h_freq, num_bs_ant
 
-    return cir_to_ofdm_channel(freqs, a, tau, normalize=True)
 
 # Neural Receiver Architecture
 class ResidualBlock(nn.Module):
@@ -130,9 +148,9 @@ class ResidualBlock(nn.Module):
         return z + inputs
 
 class NeuralReceiver(nn.Module):
-    def __init__(self, num_conv_channels=128):
+    def __init__(self, num_bs_ant, num_conv_channels=128):
         super().__init__()
-        num_input_channels = 2 * NUM_BS_ANT + 1
+        num_input_channels = 2 * num_bs_ant + 1
         self._input_conv  = nn.Conv2d(num_input_channels, num_conv_channels, kernel_size=3, padding=1)
         self._res_block_1 = ResidualBlock(num_conv_channels)
         self._res_block_2 = ResidualBlock(num_conv_channels)
@@ -157,7 +175,7 @@ class NeuralReceiver(nn.Module):
 
 
 class OFDMSystemNeuralReceiverRT(Block):
-    def __init__(self, training=True):
+    def __init__(self, num_bs_ant, training=True):
         super().__init__()
         self._training      = training
         self._k             = K
@@ -168,7 +186,7 @@ class OFDMSystemNeuralReceiverRT(Block):
         self._mapper      = Mapper("qam", NUM_BITS_PER_SYMBOL)
         self._rg_mapper   = ResourceGridMapper(RESOURCE_GRID)
 
-        self._neural_rx   = NeuralReceiver().to(device)
+        self._neural_rx   = NeuralReceiver(num_bs_ant).to(device)
         self._rg_demapper = ResourceGridDemapper(RESOURCE_GRID, STREAM_MANAGEMENT)
         self._apply_channel = ApplyOFDMChannel(add_awgn=True)
         if not training:
@@ -204,86 +222,169 @@ class OFDMSystemNeuralReceiverRT(Block):
             return bits, bits_hat, llr
 
 
-print("Precomputing channels...")
-scene = build_scene(SCENE)
-print("  Computing channel with all effects...", end=" ", flush=True)
-h_freq = compute_h_freq(scene, EFFECT_CONFIG)
-print("done")
-
-# Diagnostic
-print("\n-- Diagnostic --")
-print(f"h_freq shape = {h_freq.shape}, mean abs = {h_freq.abs().mean().item():.4f}")
-
-print("\n-- Test forward pass --")
-model_test = OFDMSystemNeuralReceiverRT(training=True)
-ebno_db_test = torch.tensor(5.0, device=device)
-loss_test = model_test(BATCH_SIZE, ebno_db_test, h_freq)
-print(f"Test loss: {loss_test.item():.4f}")
-
-
-# Step 2: Train
-print("\nTraining with all effects")
-model = OFDMSystemNeuralReceiverRT(training=True)
-optimizer = torch.optim.Adam(model.parameters())
-
-for i in range(NUM_TRAINING_ITERATIONS):
-    ebno_db = torch.empty(BATCH_SIZE, device=device).uniform_(EBN0_DB_MIN, EBN0_DB_MAX)
-    loss = model(BATCH_SIZE, ebno_db, h_freq)
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-    if i % 1000 == 0:
-        print(f"  {i}/{NUM_TRAINING_ITERATIONS}  Loss: {loss.item():.2E}")
-
-torch.save(model._neural_rx.state_dict(), WEIGHTS_FILE)
-print(f"  Saved {WEIGHTS_FILE}")
-
-# Step 3: Evaluate
-EBNO_EVAL = np.linspace(EBN0_DB_MIN, EBN0_DB_MAX, 20)
-print("\nEvaluating with all effects")
-model_eval = OFDMSystemNeuralReceiverRT(training=False)
-model_eval._neural_rx.load_state_dict(
-    torch.load(WEIGHTS_FILE, weights_only=True)
-)
-model_eval.eval()
-bers = []
-
-with torch.no_grad():
-    for ebno_db in EBNO_EVAL:
-        ebno_t = torch.tensor(float(ebno_db), device=device)
-        bits, bits_hat, _ = model_eval(BATCH_SIZE, ebno_t, h_freq)
-        ber = (bits != bits_hat).float().mean().item()
-        bers.append(max(ber, 1e-5))
-        print(f"  Eb/No={ebno_db:.1f} dB -> BER={ber:.4f}", end="\r")
-
-print(f"\n  Done - min BER: {min(bers):.2e}")
-
-# Step 4: Evaluate throughput
-EBNO_SYS = np.linspace(EBN0_DB_MIN, 2.0, 30)
-print("\nThroughput with all effects")
-
-model_sys = OFDMSystemNeuralReceiverRT(training=False)
-model_sys._neural_rx.load_state_dict(
-    torch.load(WEIGHTS_FILE, weights_only=True)
-)
-model_sys.eval()
-
-tput_list = []
-
-with torch.no_grad():
-    for ebno_db in EBNO_SYS:
-        ebno_t = torch.tensor(float(ebno_db), device=device)
-
-        bits, bits_hat, _ = model_sys(
-            batch_size=BATCH_SIZE,
-            ebno_db=ebno_t,
-            h_freq=h_freq
+def train(h_freq, num_bs_ant, iterations, batch_size, log_every=1000):
+    model = OFDMSystemNeuralReceiverRT(num_bs_ant, training=True)
+    optimizer = torch.optim.Adam(model.parameters())
+    for i in range(iterations):
+        ebno_db = torch.empty(batch_size, device=device).uniform_(
+            EBN0_DB_MIN, EBN0_DB_MAX
         )
+        loss = model(batch_size, ebno_db, h_freq)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if log_every and i % log_every == 0:
+            print(f"    {i}/{iterations}  Loss: {loss.item():.2E}", flush=True)
+    return model
 
-        block_errors = (bits != bits_hat).any(dim=-1).float()
-        harq_success = 1.0 - block_errors.mean().item()
-        tput = harq_success * K
-        tput_list.append(tput)
-        print(f"  EbN0={ebno_db:.1f}dB | BLER={1-harq_success:.3f} | Tput={tput:.0f}", end="\r")
 
-print(f"\n  Peak throughput: {max(tput_list):.1f} bits/slot")
+def evaluate_ber(weights, num_bs_ant, h_freq, num_points, batch_size):
+    model = OFDMSystemNeuralReceiverRT(num_bs_ant, training=False)
+    model._neural_rx.load_state_dict(weights)
+    model.eval()
+    points = np.linspace(EBN0_DB_MIN, EBN0_DB_MAX, num_points)
+    results = []
+    with torch.no_grad():
+        for ebno_db in points:
+            ebno = torch.tensor(float(ebno_db), device=device)
+            bits, bits_hat, _ = model(batch_size, ebno, h_freq)
+            ber = (bits != bits_hat).float().mean().item()
+            results.append([float(ebno_db), max(ber, 1e-5)])
+    return results
+
+
+def evaluate_throughput(weights, num_bs_ant, h_freq, num_points, batch_size):
+    model = OFDMSystemNeuralReceiverRT(num_bs_ant, training=False)
+    model._neural_rx.load_state_dict(weights)
+    model.eval()
+    points = np.linspace(EBN0_DB_MIN, 2.0, num_points)
+    results = []
+    with torch.no_grad():
+        for ebno_db in points:
+            ebno = torch.tensor(float(ebno_db), device=device)
+            bits, bits_hat, _ = model(batch_size, ebno, h_freq)
+            block_errors = (bits != bits_hat).any(dim=-1).float()
+            harq_success = 1.0 - block_errors.mean().item()
+            results.append([float(ebno_db), harq_success * K])
+    return results
+
+
+def build_ue_configs(args, num_ues):
+    # one resolved scene config per UE, from the eval parameters
+    if num_ues > 1:
+        if args.placement_mode != "random":
+            raise ValueError(
+                "multi-UE (--num-ues > 1) requires --placement-mode random"
+            )
+        base = load_scene_config(args.scene_config, placement_mode="configured")
+        bounds = scene_bounding_box(base["scene"])
+        min_distance = (
+            args.placement_min_distance
+            if args.placement_min_distance is not None
+            else base.get("placement", {}).get("min_distance_m", 0.0)
+        )
+        transmitter, receivers = sample_ue_positions(
+            bounds, num_ues, seed=args.placement_seed, min_distance=min_distance
+        )
+        configs = []
+        for receiver in receivers:
+            import copy
+            config = copy.deepcopy(base)
+            config["transmitter"]["position"] = list(transmitter)
+            config["receiver"]["position"] = list(receiver)
+            configs.append(config)
+        return configs
+    config = load_scene_config(
+        args.scene_config,
+        placement_mode=args.placement_mode,
+        placement_seed=args.placement_seed,
+        min_distance_m=args.placement_min_distance,
+    )
+    return [config]
+
+
+def run_evaluation(args, radio):
+    num_ues = int(args.num_ues)
+    if num_ues < 1:
+        raise ValueError("--num-ues must be at least one")
+    configs = build_ue_configs(args, num_ues)
+    ues = []
+    for index, config in enumerate(configs):
+        ue_index = index + 1
+        print(f"--- UE {ue_index} ---", flush=True)
+        h_freq, num_bs_ant = channel_from_scene_config(
+            config, radio.carrier_hz, num_samples=args.num_samples
+        )
+        print(
+            f"  h_freq {tuple(h_freq.shape)}  num_bs_ant={num_bs_ant}",
+            flush=True,
+        )
+        print(f"  training {args.iterations} iterations", flush=True)
+        model = train(h_freq, num_bs_ant, args.iterations, args.batch_size)
+        weights = model._neural_rx.state_dict()
+        ber = evaluate_ber(
+            weights, num_bs_ant, h_freq, args.eval_points, args.batch_size
+        )
+        throughput = evaluate_throughput(
+            weights, num_bs_ant, h_freq, args.throughput_points, args.batch_size
+        )
+        peak = max(t for _, t in throughput)
+        best = min(b for _, b in ber)
+        print(
+            f"  min BER={best:.2e}  peak throughput={peak:.1f} bits/slot",
+            flush=True,
+        )
+        ues.append({
+            "ue_index": ue_index,
+            "transmitter": config["transmitter"]["position"],
+            "receiver": config["receiver"]["position"],
+            "num_bs_ant": num_bs_ant,
+            "ber": ber,
+            "throughput": throughput,
+            "min_ber": best,
+            "peak_throughput_bits_per_slot": peak,
+        })
+    return {
+        "schema_version": 1,
+        "measurement": "neural-receiver-link-eval",
+        "num_ues": num_ues,
+        "scene": configs[0]["scene"],
+        "carrier_hz": radio.carrier_hz,
+        "iterations": args.iterations,
+        "batch_size": args.batch_size,
+        "ues": ues,
+    }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Neural receiver link evaluation over the eval channel"
+    )
+    parser.add_argument("--scene-config", default=str(DEFAULT_SCENE_CONFIG))
+    parser.add_argument("--gnb-config", default=str(DEFAULT_GNB_CONFIG))
+    parser.add_argument("--ue-config", default=str(DEFAULT_UE_CONFIG))
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--num-ues", type=int, default=1)
+    parser.add_argument("--placement-mode", choices=["configured", "random"])
+    parser.add_argument("--placement-seed", type=int)
+    parser.add_argument("--placement-min-distance", type=float)
+    parser.add_argument("--iterations", type=int, default=NUM_TRAINING_ITERATIONS)
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--eval-points", type=int, default=20)
+    parser.add_argument("--throughput-points", type=int, default=30)
+    parser.add_argument("--num-samples", type=int)
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    radio = load_radio_config(args.gnb_config, args.ue_config)
+    report = run_evaluation(args, radio)
+    output = pathlib.Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"report={args.output}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
