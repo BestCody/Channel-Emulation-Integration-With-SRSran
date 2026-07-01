@@ -79,7 +79,7 @@ def parse_overrides(items):
         if not separator or not key:
             raise ConfigError(f"override must be KEY=VALUE: {item!r}")
         try:
-            # JSON gives bool/int/float/null/list; fall back to string
+            # parse JSON scalar/list, else keep string
             value = json.loads(raw)
         except json.JSONDecodeError:
             value = raw
@@ -289,7 +289,7 @@ def load_and_resolve_study(
 ):
     study_path = pathlib.Path(path).resolve()
     study = load_json(study_path)
-    # --set also reaches study-level keys (trials_per_condition)
+    # --set also reaches study-level keys
     if parameter_overrides:
         for key, value in parameter_overrides.items():
             if key in study:
@@ -299,7 +299,7 @@ def load_and_resolve_study(
                     else value
                 )
     files = _parameter_files(study, study_path, parameter_files)
-    # Terminal --set overrides win over study/file parameters
+    # --set overrides win over study/file params
     inline = study.get("parameters") or {}
     if parameter_overrides:
         inline = _deep_merge(inline, parameter_overrides)

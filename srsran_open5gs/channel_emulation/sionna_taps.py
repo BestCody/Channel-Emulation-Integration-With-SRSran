@@ -5,9 +5,9 @@ from dataclasses import dataclass
 
 
 # Dense full-CIR fractional-delay taps
-DEFAULT_CHANNEL_LEN = 1024        # largest representable delay, in samples
-DEFAULT_SINC_HALF_WIDTH = 8       # windowed-sinc lobes per side, per path
-KERNEL_EPS = 1e-9                 # drop interpolation weights below this
+DEFAULT_CHANNEL_LEN = 1024   # max delay in samples
+DEFAULT_SINC_HALF_WIDTH = 8  # sinc lobes per side
+KERNEL_EPS = 1e-9            # drop tiny kernel weights
 
 
 @dataclass(frozen=True)

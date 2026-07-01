@@ -71,7 +71,7 @@ K                = int(N * CODERATE)
 
 
 def channel_from_scene_config(config, carrier_hz, num_samples=None):
-    # Build the channel from the eval system's resolved scene
+    # Build the channel from the resolved scene
     import drjit as dr
     from sionna.rt import scene as rt_scene
 
@@ -111,7 +111,7 @@ def channel_from_scene_config(config, carrier_hz, num_samples=None):
     scene.add(transmitter)
     scene.add(receiver)
 
-    # num antennas follows from the antenna polarization parameter
+    # antenna count follows from polarization
     num_bs_ant = int(scene.rx_array.num_ant)
 
     options = _solver_options(config["solver"])
@@ -281,7 +281,7 @@ def evaluate_throughput(weights, num_bs_ant, h_freq, num_points, batch_size):
 
 
 def build_ue_configs(args, num_ues):
-    # one resolved scene config per UE, from the eval parameters
+    # one resolved scene config per UE
     if num_ues > 1:
         if args.placement_mode != "random":
             raise ValueError(

@@ -51,7 +51,8 @@ def _distance(first, second):
 
 def scene_bounding_box(scene_name):
     """Return the physical scene bounding box"""
-    import mitsuba as mi  # noqa: F401  (importing sionna.rt selects the variant)
+    # importing sionna.rt selects the mitsuba variant
+    import mitsuba as mi  # noqa: F401
     from sionna.rt import load_scene
     from sionna.rt import scene as rt_scene
 

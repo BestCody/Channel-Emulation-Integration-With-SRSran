@@ -469,7 +469,7 @@ class KubernetesLifecycle:
 
     def wait_no_ue(self, timeout=None):
         timeout = float(timeout or self.timeouts.get("ue_wait_gone_seconds", 180))
-        # srsUE ignores SIGTERM; force-delete after this window
+        # srsUE ignores SIGTERM; force-delete on timeout
         force_after = float(self.timeouts.get("ue_force_delete_after_seconds", 15))
         started = time.monotonic()
         deadline = started + timeout
