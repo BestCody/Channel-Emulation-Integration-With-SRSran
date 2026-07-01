@@ -112,23 +112,23 @@ All commands are run from the `srsran_open5gs/` folder. The tool has four steps:
 cd srsran_open5gs
 
 # 1. Check the configuration is valid (no changes made)
-python3 bin/evaluation-experiment.py resolve experiments/studies/neural-los-static.json --output /tmp/resolved.json
+python3 bin/evaluation-experiment.py resolve experiments/studies/neural-base.json --output /tmp/resolved.json
 
 # 2. Print what a run would do, step by step (no changes made)
-python3 bin/evaluation-experiment.py plan experiments/studies/neural-los-static.json
+python3 bin/evaluation-experiment.py plan experiments/studies/neural-base.json
 
 # 3. Actually run it (this starts the radio and changes the cluster)
-python3 bin/evaluation-experiment.py run experiments/studies/neural-los-static.json --namespace open5gs --confirm-live
+python3 bin/evaluation-experiment.py run experiments/studies/neural-base.json --namespace open5gs --confirm-live
 
 # 4. Rebuild the tables and plots from a finished run
-python3 bin/evaluation-experiment.py summarize ../results/evaluation/neural-los-static/<run-id>
+python3 bin/evaluation-experiment.py summarize ../results/evaluation/neural-base/<run-id>
 ```
 
 Results are written to `results/evaluation/<study>/<run-id>/`, including per-test
 tables (CSV), plots (SVG), the logs, and a copy of the exact settings used.
 
 A **study** is a JSON file describing what to test (for example
-`experiments/studies/neural-los-static.json`). You normally don't edit these by
+`experiments/studies/neural-base.json`). You normally don't edit these by
 hand — you override values from the terminal instead, as shown below.
 
 ## Terminal options
@@ -210,7 +210,7 @@ Run one static line-of-sight test with reflections, in the Munich scene, using
 a cross-polarized antenna and 20 final pings:
 
 ```bash
-python3 bin/evaluation-experiment.py run experiments/studies/neural-los-static.json \
+python3 bin/evaluation-experiment.py run experiments/studies/neural-base.json \
   --namespace open5gs --confirm-live \
   --condition-set propagation.los=true \
   --condition-set propagation.specular_reflection=true \
