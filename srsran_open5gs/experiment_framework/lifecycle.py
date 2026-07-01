@@ -14,6 +14,16 @@ from dataclasses import asdict, dataclass
 
 from .results import atomic_write_text, write_json
 from .ping_parsing import parse_ping
+from .settings import (
+    FLOWGRAPH_PROCESS_PATTERN,
+    GATEWAY,
+    GNB_PROCESS_PATTERN,
+    START_GNB_SCRIPT,
+    START_GNU_SCRIPT,
+    START_UE_SCRIPT,
+    TUN_INTERFACE,
+    UE_PROCESS_PATTERN,
+)
 
 
 # In-pod log paths when params omit a "logs" block
@@ -356,13 +366,12 @@ class KubernetesLifecycle:
         self.baseline_overlay = self.kubernetes.get("baseline_overlay", "configs/ues/srsue")
         self.baseline_script = self.kubernetes.get("baseline_script", "bin/baseline.sh")
         self.num_ues = int(self.radio.get("ue_number", 1))
-        self.ue_number = self.num_ues
         self.ue_netns = self.radio.get("ue_netns", "ue1")
-        self.gateway = self.radio.get("gateway")
-        self.tun_interface = self.radio.get("tun_interface", "tun_srsue")
-        self.flowgraph_pattern = self.radio.get("flowgraph_process_pattern")
-        self.ue_process_pattern = self.radio.get("ue_process_pattern")
-        self.gnb_process_pattern = self.radio.get("gnb_process_pattern")
+        self.gateway = GATEWAY
+        self.tun_interface = TUN_INTERFACE
+        self.flowgraph_pattern = FLOWGRAPH_PROCESS_PATTERN
+        self.ue_process_pattern = UE_PROCESS_PATTERN
+        self.gnb_process_pattern = GNB_PROCESS_PATTERN
 
     @staticmethod
     def shell_quote(value):
@@ -407,14 +416,7 @@ class KubernetesLifecycle:
             self.kubectl("get", "deployment", self.ue_deployment, "-n", self.namespace, "-o", "yaml"),
             output_dir / "original-deployment.yaml",
         )
-        def value(expression):
-            return self.capture("get", "deployment", self.ue_deployment, "-n", self.namespace, "-o", f"jsonpath={expression}")
-        self.original = OriginalUEState(
-            replicas=int(value("{.spec.replicas}")),
-            configmap=value(f'{{.spec.template.spec.volumes[?(@.name=="{self.ue_config_volume}")].configMap.name}}'),
-            image=value(f'{{.spec.template.spec.containers[?(@.name=="{self.ue_container}")].image}}'),
-            pull_policy=value(f'{{.spec.template.spec.containers[?(@.name=="{self.ue_container}")].imagePullPolicy}}'),
-        )
+        self.original = self.current_state()
         write_json(output_dir / "original-state.json", asdict(self.original))
         return self.original
 
@@ -473,8 +475,7 @@ class KubernetesLifecycle:
         deadline = started + timeout
         forced = False
         while time.monotonic() < deadline:
-            # -o name is empty when gone; --no-headers writes
-            # "No resources found" to stderr and fools the check
+            # -o name is clean-empty; --no-headers is not
             value = self.capture("get", "pods", "-n", self.namespace, "-l", self.ue_selector, "-o", "name", check=False)
             if not value.strip():
                 return
@@ -534,7 +535,7 @@ class KubernetesLifecycle:
         flow = self.ue_capture(f"pgrep -f {self.shell_quote(self.flowgraph_pattern)} | head -n1")
         if not flow:
             raise CommandFailure("GNU Radio process did not remain running")
-        self.gnb_capture(f"nohup {self.radio['start_gnb_script']} >{gnb_log} 2>&1 </dev/null &")
+        self.gnb_capture(f"nohup {START_GNB_SCRIPT} >{gnb_log} 2>&1 </dev/null &")
         time.sleep(float(self.timeouts.get("radio_start_gnb_sleep_seconds", 3.0)))
         timeout = condition["measurement_profile_resolved"]["values"].get("attachment_timeout_seconds", 120)
         phrase = self.shell_quote(self.radio.get("attachment_log_phrase", "PDU Session Establishment successful"))
@@ -546,7 +547,7 @@ class KubernetesLifecycle:
     def _start_one_ue(self, ue_index, trial_dir, timeout, phrase):
         ue_log = self.shell_quote(self.ue_log_path(ue_index))
         netns = self.ue_netns_for(ue_index)
-        self.ue_capture(f"nohup {self.radio['start_ue_script']} {ue_index} >{ue_log} 2>&1 </dev/null &")
+        self.ue_capture(f"nohup {START_UE_SCRIPT} {ue_index} >{ue_log} 2>&1 </dev/null &")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.ue_capture(f"grep -Fq {phrase} {ue_log}; printf '%s' $?", check=False) == "0":
@@ -623,8 +624,7 @@ class KubernetesLifecycle:
             self.executor.run(self.kubectl("wait", "--for=condition=Ready", "pod", "-l", self.ue_selector, "-n", self.namespace, f"--timeout={rollout}s"), output_dir / "ready.log", timeout=rollout + 10)
         restored = self.current_state()
         write_json(output_dir / "restored-state.json", asdict(restored))
-        # configMapGenerator appends a content hash; a live baseline
-        # can predate repo config, so match the base name not the hash
+        # match configmap base name; kustomize adds a hash
         def cm_base(name):
             return name.rsplit("-", 1)[0] if name else name
         restored_ok = (
@@ -652,7 +652,7 @@ class KubernetesLifecycle:
         env = os.environ.copy()
         env.update({
             "NAMESPACE": self.namespace,
-            "UE_NUMBER": str(self.ue_number),
+            "UE_NUMBER": str(self.num_ues),
             "UE_SELECTOR": self.ue_selector,
             "GNB_SELECTOR": self.gnb_selector,
             "UE_CONTAINER": self.ue_container,
@@ -663,9 +663,9 @@ class KubernetesLifecycle:
             "GNURADIO_LOG": self.logs["gnuradio"],
             "GNB_LOG": self.logs["gnb"],
             "UE_LOG": self.logs["ue"],
-            "START_GNU_SCRIPT": self.radio.get("start_gnu_script", "/srsran/config/start_gnu.sh"),
-            "START_GNB_SCRIPT": self.radio["start_gnb_script"],
-            "START_UE_SCRIPT": self.radio["start_ue_script"],
+            "START_GNU_SCRIPT": START_GNU_SCRIPT,
+            "START_GNB_SCRIPT": START_GNB_SCRIPT,
+            "START_UE_SCRIPT": START_UE_SCRIPT,
             "ATTACHMENT_LOG_PHRASE": self.radio.get("attachment_log_phrase", "PDU Session Establishment successful"),
             "FLOWGRAPH_PROCESS_PATTERN": self.flowgraph_pattern,
             "UE_PROCESS_PATTERN": self.ue_process_pattern,

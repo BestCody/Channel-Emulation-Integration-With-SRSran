@@ -6,7 +6,7 @@ import json
 import pathlib
 from datetime import datetime, timezone
 
-from .settings import load_benchmark_parameters, parameter_sources, resolve_repo_path
+from .settings import _deep_merge, load_benchmark_parameters, parameter_sources, resolve_repo_path
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -69,6 +69,31 @@ def load_json(path):
     if not isinstance(value, dict):
         raise ConfigError(f"configuration must be a JSON object: {path}")
     return value
+
+
+def parse_overrides(items):
+    """Parse dotted KEY=VALUE terminal overrides into a nested dict"""
+    result = {}
+    for item in items or []:
+        key, separator, raw = str(item).partition("=")
+        key = key.strip()
+        if not separator or not key:
+            raise ConfigError(f"override must be KEY=VALUE: {item!r}")
+        try:
+            # JSON gives bool/int/float/null/list; fall back to string
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            value = raw
+        node = result
+        parts = key.split(".")
+        for part in parts[:-1]:
+            existing = node.get(part)
+            if not isinstance(existing, dict):
+                existing = {}
+                node[part] = existing
+            node = existing
+        node[parts[-1]] = value
+    return result
 
 
 def source_path(value, *, relative_to=None):
@@ -182,17 +207,32 @@ def add_nested_artifact(condition, keys, resolved_key, artifacts):
     artifacts.append(record)
 
 
-def resolve_condition(reference, study_path, parameters):
+def resolve_condition(
+    reference,
+    study_path,
+    parameters,
+    condition_overrides=None,
+    scene_overrides=None,
+    profile_overrides=None,
+):
     condition_path = source_path(reference, relative_to=study_path.parent)
-    condition = validate_condition(load_json(condition_path), condition_path, parameters)
+    raw = load_json(condition_path)
+    if condition_overrides:
+        raw = _deep_merge(raw, condition_overrides)
+    condition = validate_condition(raw, condition_path, parameters)
     resolved = copy.deepcopy(condition)
     resolved["configuration"] = source_record(condition_path)
+    # scene overrides applied to the scene file at run time
+    if scene_overrides:
+        resolved["scene_overrides"] = copy.deepcopy(scene_overrides)
 
     profile_path = source_path(
         condition.get("measurement_profile"),
         relative_to=condition_path.parent,
     )
     profile = load_json(profile_path)
+    if profile_overrides:
+        profile = _deep_merge(profile, profile_overrides)
     if profile.get("schema_version") != 1:
         raise ConfigError(f"unsupported measurement profile: {profile_path}")
     resolved["measurement_profile_resolved"] = {
@@ -255,19 +295,44 @@ def _parameter_files(study, study_path, cli_parameter_files):
     return files
 
 
-def load_and_resolve_study(path, *, resolved_at=None, parameter_files=None):
+def load_and_resolve_study(
+    path,
+    *,
+    resolved_at=None,
+    parameter_files=None,
+    parameter_overrides=None,
+    condition_overrides=None,
+    scene_overrides=None,
+    profile_overrides=None,
+):
     study_path = pathlib.Path(path).resolve()
     study = load_json(study_path)
+    # --set also reaches study-level keys (trials_per_condition)
+    if parameter_overrides:
+        for key, value in parameter_overrides.items():
+            if key in study:
+                study[key] = (
+                    _deep_merge(study[key], value)
+                    if isinstance(study.get(key), dict) and isinstance(value, dict)
+                    else value
+                )
     files = _parameter_files(study, study_path, parameter_files)
+    # Terminal --set overrides win over study/file parameters
+    inline = study.get("parameters") or {}
+    if parameter_overrides:
+        inline = _deep_merge(inline, parameter_overrides)
     try:
-        parameters = load_benchmark_parameters(*files, inline=study.get("parameters"))
+        parameters = load_benchmark_parameters(*files, inline=inline)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         raise ConfigError(f"could not load benchmark parameters: {error}") from error
     if isinstance(study.get("amf_safety"), dict):
         parameters["amf_safety"] = copy.deepcopy(study["amf_safety"])
     result_root = validate_study(study, study_path, parameters)
     conditions = [
-        resolve_condition(item, study_path, parameters)
+        resolve_condition(
+            item, study_path, parameters,
+            condition_overrides, scene_overrides, profile_overrides,
+        )
         for item in study["conditions"]
     ]
     identifiers = [item["condition_id"] for item in conditions]
@@ -286,4 +351,11 @@ def load_and_resolve_study(path, *, resolved_at=None, parameter_files=None):
     resolved["conditions"] = conditions
     resolved["trial_count"] = len(conditions) * study["trials_per_condition"]
     resolved["throughput"] = dict(DEFERRED_THROUGHPUT)
+    # Record terminal overrides for provenance
+    resolved["cli_overrides"] = {
+        "parameters": copy.deepcopy(parameter_overrides or {}),
+        "conditions": copy.deepcopy(condition_overrides or {}),
+        "scene": copy.deepcopy(scene_overrides or {}),
+        "profile": copy.deepcopy(profile_overrides or {}),
+    }
     return resolved

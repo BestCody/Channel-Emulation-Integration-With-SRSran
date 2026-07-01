@@ -4,17 +4,10 @@ import time
 from sionna_stationary import EXPECTED_SIONNA_RT_VERSION
 from sionna_stationary import EXPECTED_SIONNA_VERSION
 from sionna_stationary import EXPECTED_VARIANT
+from sionna_stationary import _complex_array
 from sionna_stationary import _solver_options
 from sionna_taps import convert_paths
 from trajectory import SPEED_OF_LIGHT
-
-
-def _complex_array(value):
-    import numpy as np
-
-    if isinstance(value, tuple) and len(value) == 2:
-        return np.asarray(value[0]) + 1j * np.asarray(value[1])
-    return np.asarray(value)
 
 
 def _point_json(point):

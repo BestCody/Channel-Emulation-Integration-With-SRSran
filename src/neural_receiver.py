@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json
 import pathlib
 import sys
@@ -288,7 +289,6 @@ def build_ue_configs(args, num_ues):
         )
         configs = []
         for receiver in receivers:
-            import copy
             config = copy.deepcopy(base)
             config["transmitter"]["position"] = list(transmitter)
             config["receiver"]["position"] = list(receiver)

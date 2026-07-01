@@ -10,24 +10,21 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_PARAMETER_FILE = REPO_ROOT / "experiments" / "benchmark-parameters.json"
 
-# Fixed plumbing; not user-configurable, always wins
-FIXED_CHANNEL = {
-    "control_endpoint": "tcp://127.0.0.1:5555",
-    "stream_endpoint": "tcp://127.0.0.1:5556",
-    "port_forward": "5555:5555",
-    "port_forward_stream": "5556:5556",
-    "port_forward_host": "127.0.0.1",
-}
-FIXED_RADIO = {
-    "flowgraph_process_pattern": "[m]ulti_ue_.*channel.py|[m]ulti_ue_scenario.py",
-    "gnb_process_pattern": "[/]srsran/gnb",
-    "ue_process_pattern": "[/]opt/srsRAN_4G/build/srsue/src/srsue",
-    "start_gnb_script": "/srsran/config/start_gnb.sh",
-    "start_gnu_script": "/srsran/config/start_gnu.sh",
-    "start_ue_script": "/srsran/config/start_ue.sh",
-    "tun_interface": "tun_srsue",
-    "gateway": "10.41.0.1",
-}
+# Fixed plumbing: infrastructure, not tunable params
+CONTROL_ENDPOINT = "tcp://127.0.0.1:5555"
+STREAM_ENDPOINT = "tcp://127.0.0.1:5556"
+PORT_FORWARD = "5555:5555"
+PORT_FORWARD_STREAM = "5556:5556"
+PORT_FORWARD_HOST = "127.0.0.1"
+PORT_FORWARD_PORT = 5555
+FLOWGRAPH_PROCESS_PATTERN = "[m]ulti_ue_.*channel.py|[m]ulti_ue_scenario.py"
+GNB_PROCESS_PATTERN = "[/]srsran/gnb"
+UE_PROCESS_PATTERN = "[/]opt/srsRAN_4G/build/srsue/src/srsue"
+START_GNB_SCRIPT = "/srsran/config/start_gnb.sh"
+START_GNU_SCRIPT = "/srsran/config/start_gnu.sh"
+START_UE_SCRIPT = "/srsran/config/start_ue.sh"
+TUN_INTERFACE = "tun_srsue"
+GATEWAY = "10.41.0.1"
 
 
 def _deep_merge(base, overlay):
@@ -95,9 +92,6 @@ def load_benchmark_parameters(*parameter_files, inline=None):
         if name in os.environ:
             _set_nested(parameters, keys, converter(os.environ[name]))
     parameters.setdefault("host_python", sys.executable)
-    # Fixed plumbing always wins; constants not knobs
-    parameters["channel"] = {**parameters.get("channel", {}), **FIXED_CHANNEL}
-    parameters["radio"] = {**parameters.get("radio", {}), **FIXED_RADIO}
     parameters["_parameter_sources"] = sources
     return parameters
 

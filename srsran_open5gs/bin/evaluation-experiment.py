@@ -9,7 +9,7 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from experiment_framework.config import load_and_resolve_study  # noqa: E402
+from experiment_framework.config import load_and_resolve_study, parse_overrides  # noqa: E402
 from experiment_framework.condition_modes import study_plan  # noqa: E402
 from experiment_framework.results import expected_result_layout, write_json  # noqa: E402
 from experiment_framework.experiment_runner import PilotRunner  # noqa: E402
@@ -41,6 +41,24 @@ def parser():
 
     summarize = commands.add_parser("summarize", help="regenerate tables and plots for an existing run")
     summarize.add_argument("run_directory")
+
+    for command in (resolve, plan, run):
+        command.add_argument(
+            "--set", action="append", default=[], dest="param_overrides", metavar="KEY=VALUE",
+            help="override a benchmark/study parameter, e.g. --set radio.ue_number=2",
+        )
+        command.add_argument(
+            "--condition-set", action="append", default=[], dest="condition_overrides", metavar="KEY=VALUE",
+            help="override a condition field, e.g. --condition-set propagation.specular_reflection=true",
+        )
+        command.add_argument(
+            "--scene-set", action="append", default=[], dest="scene_overrides", metavar="KEY=VALUE",
+            help="override a scene value, e.g. --scene-set antenna.polarization=cross",
+        )
+        command.add_argument(
+            "--profile-set", action="append", default=[], dest="profile_overrides", metavar="KEY=VALUE",
+            help="override a measurement-profile value, e.g. --profile-set final_ping.count=10",
+        )
     return result
 
 
@@ -51,7 +69,14 @@ def main():
         print(json.dumps(summary, indent=2, sort_keys=True))
         return
 
-    resolved = load_and_resolve_study(args.study, parameter_files=getattr(args, "parameters", []))
+    resolved = load_and_resolve_study(
+        args.study,
+        parameter_files=getattr(args, "parameters", []),
+        parameter_overrides=parse_overrides(getattr(args, "param_overrides", [])),
+        condition_overrides=parse_overrides(getattr(args, "condition_overrides", [])),
+        scene_overrides=parse_overrides(getattr(args, "scene_overrides", [])),
+        profile_overrides=parse_overrides(getattr(args, "profile_overrides", [])),
+    )
     if args.command == "resolve":
         write_json(args.output, resolved)
         print(args.output)

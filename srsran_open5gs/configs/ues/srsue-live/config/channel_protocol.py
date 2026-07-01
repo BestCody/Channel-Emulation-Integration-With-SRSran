@@ -293,15 +293,3 @@ def encode_message(message):
 
 def identity_taps():
     return (Tap(0, 1.0 + 0.0j),)
-
-
-def attenuation_taps():
-    return (Tap(0, 0.5011872336272722 + 0.0j),)
-
-
-def safe_multipath_taps():
-    return (
-        Tap(0, 0.92 + 0.0j),
-        Tap(12, 0.176 + 0.064j),
-        Tap(40, 0.064 - 0.096j),
-    )

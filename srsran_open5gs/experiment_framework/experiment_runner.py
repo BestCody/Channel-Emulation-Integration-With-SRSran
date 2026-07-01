@@ -10,6 +10,15 @@ import socket
 import time
 
 from .config import DEFERRED_THROUGHPUT, REPO_ROOT, apply_propagation
+from .settings import (
+    _deep_merge,
+    CONTROL_ENDPOINT,
+    PORT_FORWARD,
+    PORT_FORWARD_HOST,
+    PORT_FORWARD_PORT,
+    PORT_FORWARD_STREAM,
+    STREAM_ENDPOINT,
+)
 from .failures import FailureRecord
 from .lifecycle import (
     AMFMonitor,
@@ -26,27 +35,12 @@ from .summarize import summarize_run
 from .ping_parsing import parse_ping
 
 
-def _port_forward_mappings(channel):
+def _port_forward_mappings():
     mappings = []
-
-    def add(value):
-        if value is None or value == "":
-            return
-        values = [value] if isinstance(value, str) else value
-        for item in values:
-            mapping = str(item)
-            if mapping and mapping not in mappings:
-                mappings.append(mapping)
-
-    add(channel.get("port_forward"))
-    add(channel.get("port_forward_stream"))
-    if not mappings:
-        raise ValueError("channel.port_forward must configure at least one port mapping")
+    for value in (PORT_FORWARD, PORT_FORWARD_STREAM):
+        if value and value not in mappings:
+            mappings.append(value)
     return tuple(mappings)
-
-
-def _stream_endpoint(channel):
-    return channel.get("stream_endpoint", "tcp://127.0.0.1:5556")
 
 
 # Neural-receiver link evaluation lives alongside the repo
@@ -182,9 +176,9 @@ class PilotRunner:
 
     def start_port_forward(self, trial_dir):
         self.lifecycle.ue_pod = self.lifecycle.discover_ue()
-        port_forward = _port_forward_mappings(self.channel)
-        host = self.channel.get("port_forward_host", "127.0.0.1")
-        port = int(self.channel.get("port_forward_port", 5555))
+        port_forward = _port_forward_mappings()
+        host = PORT_FORWARD_HOST
+        port = PORT_FORWARD_PORT
         background = BackgroundCommand(
             [
                 "kubectl",
@@ -292,8 +286,8 @@ class PilotRunner:
                 "--output", str(result_path),
                 "--num-ues", str(self.lifecycle.num_ues),
                 "--repeats", str(self.channel.get("stationary_repeats", 3)),
-                "--endpoint", self.channel["control_endpoint"],
-                "--stream-endpoint", _stream_endpoint(self.channel),
+                "--endpoint", CONTROL_ENDPOINT,
+                "--stream-endpoint", STREAM_ENDPOINT,
                 *self._placement_args(condition, trial_number),
             ],
             channel_dir / "stationary-channel.log",
@@ -304,7 +298,11 @@ class PilotRunner:
     def _resolve_scene(self, condition, trial_dir):
         channel_dir = pathlib.Path(trial_dir) / "condition/channel"
         source = pathlib.Path(condition["scene_resolved"]["absolute_path"])
-        merged = apply_propagation(json.loads(source.read_text(encoding="utf-8")), condition.get("propagation"))
+        scene = json.loads(source.read_text(encoding="utf-8"))
+        # --scene-set overrides (antenna, positions, solver base)
+        if condition.get("scene_overrides"):
+            scene = _deep_merge(scene, condition["scene_overrides"])
+        merged = apply_propagation(scene, condition.get("propagation"))
         resolved = channel_dir / "resolved-scene.json"
         write_json(resolved, merged)
         return str(resolved)
@@ -353,8 +351,8 @@ class PilotRunner:
                 "--trajectory", condition["trajectory_resolved"]["absolute_path"],
                 "--scene-config", scene_path,
                 "--num-ues", str(self.lifecycle.num_ues),
-                "--endpoint", self.channel["control_endpoint"],
-                "--stream-endpoint", _stream_endpoint(self.channel),
+                "--endpoint", CONTROL_ENDPOINT,
+                "--stream-endpoint", STREAM_ENDPOINT,
                 "--final-hold-seconds", str(self.channel.get("final_hold_seconds", 5.0)),
                 "--output", str(live),
                 *self._placement_args(condition, trial_number),
@@ -377,8 +375,8 @@ class PilotRunner:
             [
                 self.host_python,
                 str(REPO_ROOT / "channel_emulation/noise_sweep_controller.py"),
-                "--endpoint", self.channel["control_endpoint"],
-                "--stream-endpoint", _stream_endpoint(self.channel),
+                "--endpoint", CONTROL_ENDPOINT,
+                "--stream-endpoint", STREAM_ENDPOINT,
                 *arguments,
                 "--output", str(output),
             ],

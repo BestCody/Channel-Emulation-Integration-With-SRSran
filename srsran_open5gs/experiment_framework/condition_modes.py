@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 
 
-def _port_forward_display(channel):
+from .settings import PORT_FORWARD, PORT_FORWARD_STREAM
+
+
+def _port_forward_display():
     mappings = []
-    for key in ("port_forward", "port_forward_stream"):
-        value = channel.get(key)
-        if value is None or value == "":
-            continue
-        values = [value] if isinstance(value, str) else value
-        for item in values:
-            mapping = str(item)
-            if mapping and mapping not in mappings:
-                mappings.append(mapping)
+    for value in (PORT_FORWARD, PORT_FORWARD_STREAM):
+        if value and value not in mappings:
+            mappings.append(value)
     return ", ".join(mappings) or "configured control port"
 
 
 def condition_plan(condition, parameters=None):
     parameters = parameters or {}
-    port_forward = _port_forward_display(parameters.get("channel", {}))
+    port_forward = _port_forward_display()
     propagation = condition.get("propagation", {})
     effects = ", ".join(f"{key}={value}" for key, value in sorted(propagation.items())) or "all RT effects off"
     actions = [
