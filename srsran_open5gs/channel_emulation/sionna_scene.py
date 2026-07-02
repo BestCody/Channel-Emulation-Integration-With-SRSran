@@ -49,6 +49,28 @@ def _distance(first, second):
     return math.sqrt(sum((float(a) - float(b)) ** 2 for a, b in zip(first, second)))
 
 
+def antenna_array_dims(antenna, key):
+    """Read an antenna panel as (rows, cols), default 1x1"""
+    raw = antenna.get(key, [1, 1])
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise ValueError(f"antenna {key} must be [rows, cols]")
+    dims = []
+    for value in raw:
+        if isinstance(value, bool) or float(value) != int(value):
+            raise ValueError(f"antenna {key} entries must be integers")
+        dims.append(int(value))
+    rows, cols = dims
+    if rows < 1 or cols < 1:
+        raise ValueError(f"antenna {key} entries must be positive")
+    return rows, cols
+
+
+def antenna_port_count(rows, cols, polarization):
+    # cross polarization has two ports per element
+    ports = 2 if polarization == "cross" else 1
+    return rows * cols * ports
+
+
 def scene_bounding_box(scene_name):
     """Return the physical scene bounding box"""
     # importing sionna.rt selects the mitsuba variant
