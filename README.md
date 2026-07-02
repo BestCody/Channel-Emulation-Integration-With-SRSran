@@ -171,19 +171,16 @@ there. (To force a specific interpreter regardless of the active environment,
 pass `--set host_python=/path/to/python`.) The tool has four steps:
 
 ```bash
-source ~/sionna-env/bin/activate   # the env from step 4
+source ~/sionna-env/bin/activate   
 
-# 1. Check the configuration is valid (no changes made)
-python3 bin/evaluation-experiment.py resolve experiments/studies/neural-base.json --output /tmp/resolved.json
-
-# 2. Print what a run would do, step by step (no changes made)
-python3 bin/evaluation-experiment.py plan experiments/studies/neural-base.json
-
-# 3. Actually run it (this starts the radio and changes the cluster)
-python3 bin/evaluation-experiment.py run experiments/studies/neural-base.json --namespace open5gs --confirm-live
-
-# 4. Rebuild the tables and plots from a finished run
-python3 bin/evaluation-experiment.py summarize ../results/evaluation/neural-base/<run-id>
+#Example Run
+python3 bin/evaluation-experiment.py run experiments/studies/neural-base.json \
+  --namespace open5gs --confirm-live \
+  --condition-set propagation.los=true \
+  --condition-set propagation.specular_reflection=true \
+  --scene-set scene='"munich"' \
+  --scene-set 'receiver.velocity=[10,0,0]' \
+  --profile-set final_ping.count=20
 ```
 
 Results are written to `results/evaluation/<study>/<run-id>/`, including per-test
@@ -262,23 +259,6 @@ Example: `--scene-set scene='"munich"' --scene-set 'transmitter.position=[-1.5,0
 | `attachment_timeout_seconds` | How long to wait for the phone to connect before failing. |
 | `amf_interval_seconds` | How often to record the core network's memory use. |
 | `resource_interval_seconds` | How often to record CPU and GPU use. |
-
-Example: `--profile-set final_ping.count=20`
-
-### A full example
-
-Run one line-of-sight test with reflections, in the Munich scene, with the
-phone moving at 10 m/s and 20 final pings:
-
-```bash
-python3 bin/evaluation-experiment.py run experiments/studies/neural-base.json \
-  --namespace open5gs --confirm-live \
-  --condition-set propagation.los=true \
-  --condition-set propagation.specular_reflection=true \
-  --scene-set scene='"munich"' \
-  --scene-set 'receiver.velocity=[10,0,0]' \
-  --profile-set final_ping.count=20
-```
 
 Every override you use is recorded in the results folder, so a run can always be
 reproduced.
