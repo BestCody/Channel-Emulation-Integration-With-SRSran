@@ -13,13 +13,9 @@ over **realistic radio channels** that are computed with ray tracing. It uses th
 
 - A machine running **Ubuntu 22.04 or 24.04**.
 - An **NVIDIA GPU** with recent drivers, CUDA, and the NVIDIA Container
-  Toolkit (see step 2 for the Kubernetes-side setup).
-- **Python 3.11 or newer** (`sionna` and `numpy` require it). Ubuntu 24.04
-  ships 3.12, which works; 22.04's default is 3.10, which is too old — see
-  step 4.
-- A Kubernetes storage class named **`longhorn`** for MongoDB's persistent
-  volume, or an edited MongoDB overlay that uses a storage class available on
-  your cluster.
+  Toolkit
+- **Python 3.11 or newer** (`sionna` and `numpy` require it)
+- A Kubernetes storage class named **`longhorn`**
 
 ## Setting it up after cloning
 
@@ -31,8 +27,7 @@ cd sionna-srsran/srsran_open5gs
 All the setup commands below run from this `srsran_open5gs/` directory.
 
 **1. Set up the Kubernetes cluster.**
-Sets up the single-node cluster and networking (containerd, kubeadm, Flannel,
-Multus). Does not deploy the 5G network.
+Sets up the single-node cluster and networking.
 
 ```bash
 cd testbed-automator
@@ -41,9 +36,7 @@ cd ..
 ```
 
 **2. Enable GPU access in the cluster.**
-The UE requests a GPU, but `install.sh` doesn't wire GPU into Kubernetes (the UE
-would sit `Pending` with `Insufficient nvidia.com/gpu`). This adds an `nvidia`
-runtime + RuntimeClass, keeping `runc` as the default:
+The UE requests a GPU, but `install.sh` doesn't wire GPU into Kubernetes:
 
 ```bash
 # Needs the NVIDIA Container Toolkit (provides nvidia-ctk). If `nvidia-ctk
@@ -63,8 +56,7 @@ metadata:
 handler: nvidia
 EOF
 
-# c. install the NVIDIA device plugin so the node advertises its GPUs, and
-#    run it under the nvidia runtime so it can see them
+# c. install the NVIDIA device plugin
 kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/deployments/static/nvidia-device-plugin.yml
 kubectl -n kube-system patch daemonset nvidia-device-plugin-daemonset \
   --type=json -p '[{"op":"add","path":"/spec/template/spec/runtimeClassName","value":"nvidia"}]'
@@ -89,8 +81,7 @@ kubectl apply -n open5gs -k configs/srsRAN/srsran-gnb     # base station (gNB)
 kubectl apply -n open5gs -k configs/ues/srsue             # phone (UE)
 ```
 
-Register the phone as a subscriber (already defined in
-`configs/open5gs/data/subscribers.json`) by loading it into the database:
+Register the phone as a subscriber:
 
 ```bash
 python3 -m pip install pymongo
@@ -101,9 +92,6 @@ cd ../../..
 ```
 
 **4. Create the Python environment for the ray tracing and neural receiver.**
-These run on the host (they use the GPU). Needs Python 3.11+: 24.04's `python3`
-(3.12) works; 22.04's 3.10 is too old, so install `python3.11` (deadsnakes) or a
-conda/pyenv 3.11+ env and use it in place of `python3` below.
 
 ```bash
 python3 -m venv ~/sionna-env
