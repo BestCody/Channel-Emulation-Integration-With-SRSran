@@ -65,10 +65,6 @@ kubectl -n kube-system patch daemonset nvidia-device-plugin-daemonset \
 kubectl get node -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}{"\n"}'
 ```
 
-The `srsue`/`srsue-live` overlays already set `runtimeClassName: nvidia`. On a
-dedicated host you can instead run `nvidia-ctk runtime configure
---set-as-default` and skip the RuntimeClass.
-
 **3. Deploy the 5G core and the radio.**
 Apply as Kubernetes overlays:
 
