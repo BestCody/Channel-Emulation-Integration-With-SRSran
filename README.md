@@ -31,8 +31,8 @@ cd sionna-srsran/srsran_open5gs
 All the setup commands below run from this `srsran_open5gs/` directory.
 
 **1. Set up the Kubernetes cluster.**
-This installer prepares the single-node cluster and its networking (containerd,
-kubeadm, Flannel, Multus). It does not deploy the 5G network itself.
+Sets up the single-node cluster and networking (containerd, kubeadm, Flannel,
+Multus). Does not deploy the 5G network.
 
 ```bash
 cd testbed-automator
@@ -41,11 +41,9 @@ cd ..
 ```
 
 **2. Enable GPU access in the cluster.**
-The phone (UE) and the live-channel engine request a GPU (`nvidia.com/gpu`), but
-`install.sh` does not wire the GPU into Kubernetes — without this the UE pod
-stays `Pending` with `Insufficient nvidia.com/gpu`. Do it once. The steps below
-keep `runc` as the node's default runtime (safer on a shared host) and let only
-GPU pods opt in through an `nvidia` RuntimeClass:
+The UE requests a GPU, but `install.sh` doesn't wire GPU into Kubernetes (the UE
+would sit `Pending` with `Insufficient nvidia.com/gpu`). This adds an `nvidia`
+runtime + RuntimeClass, keeping `runc` as the default:
 
 ```bash
 # Needs the NVIDIA Container Toolkit (provides nvidia-ctk). If `nvidia-ctk
@@ -75,14 +73,12 @@ kubectl -n kube-system patch daemonset nvidia-device-plugin-daemonset \
 kubectl get node -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}{"\n"}'
 ```
 
-The `srsue` overlay already sets `runtimeClassName: nvidia` so the phone pod
-gets a GPU; make sure any UE overlay you run (including `srsue-live`) does the
-same. On a dedicated (non-shared) GPU host you can instead make nvidia the
-default runtime with `sudo nvidia-ctk runtime configure --runtime=containerd
---set-as-default` and skip the RuntimeClass entirely.
+The `srsue`/`srsue-live` overlays already set `runtimeClassName: nvidia`. On a
+dedicated host you can instead run `nvidia-ctk runtime configure
+--set-as-default` and skip the RuntimeClass.
 
 **3. Deploy the 5G core and the radio.**
-These are applied as Kubernetes overlays. Apply the core first, then the radio:
+Apply as Kubernetes overlays — core first, then the radio:
 
 ```bash
 kubectl create namespace open5gs --dry-run=client -o yaml | kubectl apply -f -
@@ -93,11 +89,8 @@ kubectl apply -n open5gs -k configs/srsRAN/srsran-gnb     # base station (gNB)
 kubectl apply -n open5gs -k configs/ues/srsue             # phone (UE)
 ```
 
-The phone must be registered as a subscriber in the core before it can connect.
-The subscriber list (including the one the built-in phone uses) is already in
-`configs/open5gs/data/subscribers.json`; you just load it into the core's
-database. Run this from the `mongo-tools` folder — it opens a temporary
-connection to the database and inserts the subscribers:
+Register the phone as a subscriber (already defined in
+`configs/open5gs/data/subscribers.json`) by loading it into the database:
 
 ```bash
 python3 -m pip install pymongo
@@ -107,22 +100,10 @@ python3 list-subscribers.py
 cd ../../..
 ```
 
-The list command prints the registered phones.
-
 **4. Create the Python environment for the ray tracing and neural receiver.**
-These run on the host (not inside Kubernetes) because they use the GPU. There is
-no requirements file yet; install the packages the code expects.
-
-First confirm your Python is 3.11 or newer:
-
-```bash
-python3 --version
-```
-
-Ubuntu 24.04 ships 3.12, which works — use `python3` (or `python3.12`) below.
-On 22.04 the default is 3.10, which is too old; install a newer Python first
-(the deadsnakes PPA's `python3.11`, or a conda/pyenv 3.11+ environment) and use
-that in place of `python3`.
+These run on the host (they use the GPU). Needs Python 3.11+: 24.04's `python3`
+(3.12) works; 22.04's 3.10 is too old, so install `python3.11` (deadsnakes) or a
+conda/pyenv 3.11+ env and use it in place of `python3` below.
 
 ```bash
 python3 -m venv ~/sionna-env
@@ -143,15 +124,12 @@ pip install "torch==2.11.0" --index-url https://download.pytorch.org/whl/cu128
 kubectl get pods -n open5gs
 ```
 
-You should see the Open5GS core, the gNB, and the UE pods in `Running` state.
+The Open5GS core, gNB, and UE pods should all be `Running`.
 
 **6. Build the live-channel UE image.**
-Live-channel runs use a custom UE image with the `gr-sionna-channel` CUDA block
-compiled in. The `srsue-live` overlay pins it to `localhost/srsue-live:gr38-v1`
-with `imagePullPolicy: Never`, so it must be built and imported into the
-cluster's containerd **before** running — otherwise the UE pod fails with
-`ErrImageNeverPull`. There is no build script; build the base image, then the
-live image, then import it:
+Live runs need a custom UE image (`localhost/srsue-live:gr38-v1`,
+`imagePullPolicy: Never`) built and imported into containerd first, or the UE
+fails with `ErrImageNeverPull`. Build the base, then the live image, then import:
 
 ```bash
 # base image with the sparse channel block
