@@ -70,7 +70,7 @@ dedicated host you can instead run `nvidia-ctk runtime configure
 --set-as-default` and skip the RuntimeClass.
 
 **3. Deploy the 5G core and the radio.**
-Apply as Kubernetes overlays — core first, then the radio:
+Apply as Kubernetes overlays:
 
 ```bash
 kubectl create namespace open5gs --dry-run=client -o yaml | kubectl apply -f -
@@ -115,9 +115,6 @@ kubectl get pods -n open5gs
 The Open5GS core, gNB, and UE pods should all be `Running`.
 
 **6. Build the live-channel UE image.**
-Live runs need a custom UE image (`localhost/srsue-live:gr38-v1`,
-`imagePullPolicy: Never`) built and imported into containerd first, or the UE
-fails with `ErrImageNeverPull`. Build the base, then the live image, then import:
 
 ```bash
 # base image with the sparse channel block
@@ -129,12 +126,6 @@ sudo docker save localhost/srsue-live:gr38-v1 | sudo ctr -n k8s.io images import
 ```
 
 ## Running an evaluation
-
-All commands are run from the `srsran_open5gs/` folder, with the Python
-environment from step 4 active — the tool launches the ray tracer and neural
-receiver as `python3`, so `sionna`, `torch`, and `mitsuba` must be importable
-there. (To force a specific interpreter regardless of the active environment,
-pass `--set host_python=/path/to/python`.) The tool has four steps:
 
 ```bash
 source ~/sionna-env/bin/activate   
