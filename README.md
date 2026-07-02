@@ -145,11 +145,10 @@ tables (CSV), plots (SVG), the logs, and a copy of the exact settings used.
 
 A **study** is a JSON file describing what to test (for example
 `experiments/studies/neural-base.json`). You normally don't edit these by
-hand — you override values from the terminal instead, as shown below.
+hand, you override values from the terminal instead, as shown below.
 
 ## Terminal options
 
-The override flags below go on the `resolve`, `plan`, and `run` commands.
 Command-specific flags are noted in the table.
 
 | Option | What it does |
