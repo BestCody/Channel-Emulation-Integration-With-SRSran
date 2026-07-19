@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "condition_id": "neural-base",
-  "label": "Moving box channel; neural-receiver throughput",
-  "description": "Moving box channel; throughput from the neural receiver",
+  "label": "Moving box channel",
+  "description": "Moving box channel; throughput deferred",
   "launcher": "/srsran/config/start_gnu_live_channel.sh {ue_number}",
   "scene": "channel_emulation/scenes/default_scene.json",
   "propagation": {},
   "trajectory": "channel_emulation/trajectories/default_trajectory.json",
   "throughput": {
-    "status": "neural_receiver"
+    "status": "deferred"
   },
   "measurement_profile": "../measurement-profiles/neural-link.json",
   "overlay": "configs/ues/srsue-live"

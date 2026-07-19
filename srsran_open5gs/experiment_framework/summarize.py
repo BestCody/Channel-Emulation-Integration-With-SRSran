@@ -162,8 +162,6 @@ def summarize_run(run_root):
     write_json(summary_dir / "conditions.json", conditions)
 
     moving_positions = []
-    neural_ber = []
-    neural_throughput = []
     failures = []
     resources = []
     gpu_samples = []
@@ -185,27 +183,6 @@ def summarize_run(run_root):
                         "alpha": record.get("alpha"),
                         "tap_count": record.get("tap_count"),
                     })
-            neural = result.get("neural_receiver")
-            if isinstance(neural, dict):
-                # Per-UE neural-receiver link curves
-                for ue in neural.get("ues", []):
-                    ue_index = ue.get("ue_index")
-                    for ebno_db, ber in ue.get("ber", []):
-                        neural_ber.append({
-                            "condition_id": condition_id,
-                            "trial_number": trial_number,
-                            "ue_index": ue_index,
-                            "ebno_db": ebno_db,
-                            "ber": ber,
-                        })
-                    for ebno_db, tput in ue.get("throughput", []):
-                        neural_throughput.append({
-                            "condition_id": condition_id,
-                            "trial_number": trial_number,
-                            "ue_index": ue_index,
-                            "ebno_db": ebno_db,
-                            "throughput_bits_per_slot": tput,
-                        })
         failure_path = trial_path / "failure.json"
         if failure_path.exists():
             failure = json.loads(failure_path.read_text(encoding="utf-8"))
@@ -238,8 +215,6 @@ def summarize_run(run_root):
 
     table_specs = [
         ("moving-positions.csv", moving_positions),
-        ("neural-receiver-ber.csv", neural_ber),
-        ("neural-receiver-throughput.csv", neural_throughput),
         ("failures.csv", failures),
         ("resource-samples.csv", resources),
         ("gpu-samples.csv", gpu_samples),
@@ -256,19 +231,16 @@ def summarize_run(run_root):
     dot_plot(summary_dir / "plots/cpu.svg", "CPU by individual process sample", resources, "cpu_percent", "CPU (%)")
     dot_plot(summary_dir / "plots/gpu-utilization.svg", "GPU utilization samples", gpu_samples, "gpu_utilization_percent", "GPU utilization (%)")
     line_plot(summary_dir / "plots/amf-memory.svg", "AMF memory during pilot", amf_samples, "time_ns", "memory_current", "Time (ns)", "Memory (bytes)")
-    line_plot(summary_dir / "plots/neural-receiver-throughput.svg", "Neural receiver throughput versus Eb/No", neural_throughput, "ebno_db", "throughput_bits_per_slot", "Eb/No (dB)", "Throughput (bits/slot)")
     atomic_write_text(
         summary_dir / "README.txt",
         "Individual trial results are shown in trials.csv.\n"
         "Confidence intervals are intentionally not reported for small trial counts.\n"
-        "Throughput is from the neural receiver when configured, otherwise deferred.\n",
+        "Throughput measurement is deferred.\n",
     )
     return {
         "trial_rows": rows,
         "conditions": conditions,
         "moving_positions": moving_positions,
-        "neural_ber": neural_ber,
-        "neural_throughput": neural_throughput,
         "failures": failures,
         "resources": resources,
         "gpu_samples": gpu_samples,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "study_id": "neural-mimo",
-  "description": "Moving condition over a 2-antenna gNB with neural-receiver throughput; one trial",
+  "description": "Moving condition over a 2-antenna gNB; one trial",
   "pilot": true,
   "conditions": [
     "../conditions/neural-mimo.json"

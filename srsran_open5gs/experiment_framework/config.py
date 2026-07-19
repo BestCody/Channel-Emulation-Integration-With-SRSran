@@ -119,7 +119,7 @@ def source_record(path):
     }
 
 
-THROUGHPUT_STATUSES = {"deferred", "neural_receiver"}
+THROUGHPUT_STATUSES = {"deferred"}
 
 
 def validate_throughput(condition):

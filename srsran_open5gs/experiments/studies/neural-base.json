@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "study_id": "neural-base",
-  "description": "Single moving condition with neural-receiver throughput; one trial",
+  "description": "Single moving condition; one trial",
   "pilot": true,
   "conditions": [
     "../conditions/neural-base.json"

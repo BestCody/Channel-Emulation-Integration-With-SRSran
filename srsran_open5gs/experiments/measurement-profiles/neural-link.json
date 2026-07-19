@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Static link profile: short final ping plus neural-receiver throughput",
+  "description": "Static link profile: short final ping",
   "attachment_timeout_seconds": 120,
   "final_ping": {
     "count": 5,
