@@ -6,7 +6,7 @@ import struct
 from dataclasses import dataclass
 
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 # Dense CIR caps track the engine ring buffer
 MAX_CHANNEL_LEN = 1024
 MAX_TAPS = MAX_CHANNEL_LEN
@@ -16,10 +16,12 @@ NOISE_SIGMA_MAX = 512.0
 VALID_DIRECTIONS = {"both", "downlink", "uplink"}
 # UE addressing: 0 = all UEs, k = UE k (1-based)
 MAX_UES = 64
+# gNB antenna addressing: 0 = all, k = antenna k (1-based)
+MAX_BS_ANTENNAS = 8
 
 # Latest CIR stream frame wins
 _FRAME_MAGIC = b"SCIR"
-_FRAME_HEADER = struct.Struct("<4sBBBBQQdI")
+_FRAME_HEADER = struct.Struct("<4sBBBBBQQdI")
 _FRAME_TAP = struct.Struct("<Idd")
 _MSG_CHANNEL_UPDATE = 1
 _DIRECTION_CODES = {"both": 0, "downlink": 1, "uplink": 2}
@@ -40,6 +42,7 @@ class ChannelUpdate:
     client_send_ns: int
     noise_sigma: float
     ue_index: int
+    bs_index: int
 
 
 def strict_integer(value, field):
@@ -133,6 +136,9 @@ def parse_update(message):
     ue_index = strict_integer(message.get("ue_index", 0), "ue_index")
     if ue_index < 0 or ue_index > MAX_UES:
         raise ValueError(f"ue_index must be in 0..{MAX_UES}")
+    bs_index = strict_integer(message.get("bs_index", 0), "bs_index")
+    if bs_index < 0 or bs_index > MAX_BS_ANTENNAS:
+        raise ValueError(f"bs_index must be in 0..{MAX_BS_ANTENNAS}")
 
     allowed = {
         "version",
@@ -143,6 +149,7 @@ def parse_update(message):
         "client_send_ns",
         "noise_sigma",
         "ue_index",
+        "bs_index",
     }
     unknown = set(message) - allowed
     if unknown:
@@ -155,6 +162,7 @@ def parse_update(message):
         client_send_ns=client_send_ns,
         noise_sigma=noise_sigma,
         ue_index=ue_index,
+        bs_index=bs_index,
     )
 
 
@@ -165,6 +173,7 @@ def build_update(
     client_send_ns=0,
     noise_sigma=0.0,
     ue_index=0,
+    bs_index=0,
 ):
     taps = validate_taps(tuple(taps))
     message = {
@@ -183,6 +192,7 @@ def build_update(
         ],
         "client_send_ns": strict_integer(client_send_ns, "client_send_ns"),
         "ue_index": strict_integer(ue_index, "ue_index"),
+        "bs_index": strict_integer(bs_index, "bs_index"),
     }
     parse_update(message)
     return message
@@ -200,6 +210,7 @@ def _encode_update_frame(message):
             _MSG_CHANNEL_UPDATE,
             _DIRECTION_CODES[direction],
             int(message.get("ue_index", 0)),
+            int(message.get("bs_index", 0)),
             int(message["sequence"]),
             int(message.get("client_send_ns", 0)),
             float(message.get("noise_sigma", 0.0)),
@@ -223,6 +234,7 @@ def _decode_update_frame(payload):
         msg_type,
         direction_code,
         ue_index,
+        bs_index,
         sequence,
         client_send_ns,
         noise_sigma,
@@ -253,6 +265,7 @@ def _decode_update_frame(payload):
         "taps": taps,
         "client_send_ns": client_send_ns,
         "ue_index": ue_index,
+        "bs_index": bs_index,
     }
 
 

@@ -6,7 +6,7 @@ amf:
 
 ru_sdr:
   device_driver: zmq                # RF driver
-  device_args: tx_port=${SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT},rx_port=${SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT},base_srate=23.04e6 # ZMQ RF endpoints
+  device_args: ${SRSRAN_ZMQ_GNB_DEVICE_ARGS} # ZMQ RF endpoints per antenna
   srate: 23.04                      # RF sample rate
   tx_gain: 75                       # RF transmit gain
   rx_gain: 75                       # RF receive gain
@@ -15,6 +15,8 @@ cell_cfg:
   dl_arfcn: 368500                  # Downlink carrier ARFCN
   band: 3                           # NR band
   channel_bandwidth_MHz: 20         # Channel bandwidth in MHz
+  nof_antennas_dl: ${SRSRAN_GNB_ANTENNAS} # gNB downlink antennas
+  nof_antennas_ul: ${SRSRAN_GNB_ANTENNAS} # gNB uplink antennas
   common_scs: 15                    # Data subcarrier spacing in kHz
   plmn: "00101"                     # Broadcast PLMN
   tac: 7                            # Tracking area code

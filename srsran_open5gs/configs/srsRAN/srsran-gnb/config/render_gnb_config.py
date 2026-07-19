@@ -53,6 +53,38 @@ def _endpoint(env_name, addr, port):
     return _env(env_name) or f"tcp://{addr}:{port}"
 
 
+def _antenna_endpoints(gnb_zmq_addr, ue_zmq_addr, antennas):
+    # antenna 0 keeps the legacy endpoints/ports
+    downlink_base = _env_int("SRSRAN_ZMQ_GNB_DOWNLINK_PORT", 2000)
+    uplink_base = _env_int("SRSRAN_ZMQ_GNB_UPLINK_PORT", 2001)
+    downlinks = [_endpoint(
+        "SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT", gnb_zmq_addr, downlink_base
+    )]
+    uplinks = [_endpoint(
+        "SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT", ue_zmq_addr, uplink_base
+    )]
+    for antenna in range(1, antennas):
+        downlinks.append(
+            f"tcp://{gnb_zmq_addr}:{downlink_base + 2 * antenna}"
+        )
+        uplinks.append(
+            f"tcp://{ue_zmq_addr}:{uplink_base + 2 * antenna}"
+        )
+    return downlinks, uplinks
+
+
+def _device_args(downlinks, uplinks):
+    if len(downlinks) == 1:
+        pairs = [f"tx_port={downlinks[0]},rx_port={uplinks[0]}"]
+    else:
+        pairs = [
+            f"tx_port{index}={downlink},rx_port{index}={uplink}"
+            for index, (downlink, uplink)
+            in enumerate(zip(downlinks, uplinks))
+        ]
+    return ",".join(pairs) + ",base_srate=23.04e6"
+
+
 def render_values():
     interface = _env("SRSRAN_ZMQ_INTERFACE") or DEFAULT_ZMQ_INTERFACE
     gnb_bind_addr = (
@@ -63,20 +95,20 @@ def render_values():
     )
     gnb_zmq_addr = _env("SRSRAN_GNB_ZMQ_ADDR") or gnb_bind_addr
     ue_zmq_addr = _env("SRSRAN_UE_ZMQ_ADDR") or DEFAULT_UE_ZMQ_ADDR
+    antennas = _env_int("SRSRAN_GNB_ANTENNAS", 1)
+    if antennas < 1:
+        raise ValueError("SRSRAN_GNB_ANTENNAS must be at least one")
+    downlinks, uplinks = _antenna_endpoints(
+        gnb_zmq_addr, ue_zmq_addr, antennas
+    )
     return {
         "SRSRAN_AMF_N3_ADDR":
             _env("SRSRAN_AMF_N3_ADDR") or DEFAULT_AMF_N3_ADDR,
         "SRSRAN_GNB_N3_BIND_ADDR": gnb_bind_addr,
-        "SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT": _endpoint(
-            "SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT",
-            gnb_zmq_addr,
-            _env_int("SRSRAN_ZMQ_GNB_DOWNLINK_PORT", 2000),
-        ),
-        "SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT": _endpoint(
-            "SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT",
-            ue_zmq_addr,
-            _env_int("SRSRAN_ZMQ_GNB_UPLINK_PORT", 2001),
-        ),
+        "SRSRAN_GNB_ANTENNAS": str(antennas),
+        "SRSRAN_ZMQ_GNB_DEVICE_ARGS": _device_args(downlinks, uplinks),
+        "SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT": downlinks[0],
+        "SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT": uplinks[0],
     }
 
 

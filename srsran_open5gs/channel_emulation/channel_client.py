@@ -10,6 +10,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 LIVE_CONFIG = REPO_ROOT / "configs" / "ues" / "srsue-live" / "config"
 sys.path.insert(0, str(LIVE_CONFIG))
 
+from channel_protocol import PROTOCOL_VERSION  # noqa: E402
 from channel_protocol import decode_message  # noqa: E402
 from channel_protocol import encode_message  # noqa: E402
 
@@ -72,10 +73,10 @@ class ChannelClient:
 
     def get_config(self):
         return self.request(
-            {"version": 1, "msg_type": "config_request"}
+            {"version": PROTOCOL_VERSION, "msg_type": "config_request"}
         )
 
     def get_status(self):
         return self.request(
-            {"version": 1, "msg_type": "status_request"}
+            {"version": PROTOCOL_VERSION, "msg_type": "status_request"}
         )

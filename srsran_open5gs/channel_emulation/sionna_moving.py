@@ -6,6 +6,7 @@ from sionna_scene import EXPECTED_SIONNA_VERSION
 from sionna_scene import EXPECTED_VARIANT
 from sionna_scene import _complex_array
 from sionna_scene import _solver_options
+from sionna_scene import antenna_array_dims
 from sionna_taps import convert_paths
 from trajectory import SPEED_OF_LIGHT
 
@@ -52,9 +53,11 @@ class MovingSionnaScene:
         self.scene = load_scene(scene_path)
         self.scene.frequency = self.carrier_hz
         antenna = config["antenna"]
+        # gNB side may expose several live antenna ports
+        bs_rows, bs_cols = antenna_array_dims(antenna, "bs_array")
         self.scene.tx_array = PlanarArray(
-            num_rows=1,
-            num_cols=1,
+            num_rows=bs_rows,
+            num_cols=bs_cols,
             pattern=antenna["pattern"],
             polarization=antenna["polarization"],
         )
@@ -64,6 +67,11 @@ class MovingSionnaScene:
             pattern=antenna["pattern"],
             polarization=antenna["polarization"],
         )
+        self.num_bs_ports = int(self.scene.tx_array.num_ant)
+        if int(self.scene.rx_array.num_ant) != 1:
+            raise ValueError(
+                "live channel supports a single UE antenna port"
+            )
         self.transmitter = Transmitter(
             name="gnb",
             position=mi.Point3f(*config["transmitter"]["position"]),
@@ -107,22 +115,36 @@ class MovingSionnaScene:
         self.dr.sync_thread()
         cir_end_ns = time.monotonic_ns()
 
-        coefficient_array = _complex_array(coefficients)
+        coefficient_array = np.asarray(_complex_array(coefficients))
         if coefficient_array.shape[-1] == 1:
             coefficient_array = coefficient_array[..., 0]
-        coefficient_values = coefficient_array.reshape(-1)
-        delay_values = np.asarray(delays).reshape(-1)
-        if coefficient_values.size != delay_values.size:
-            raise RuntimeError("coefficient and delay shapes differ")
+        # [rx, rx_ant, tx, tx_ant, paths] after the time squeeze
+        if coefficient_array.ndim != 5:
+            raise RuntimeError("unexpected CIR coefficient shape")
+        if coefficient_array.shape[:3] != (1, 1, 1):
+            raise RuntimeError("live channel expects one 1-port UE link")
+        if coefficient_array.shape[3] != self.num_bs_ports:
+            raise RuntimeError("CIR port count does not match bs_array")
+        delay_array = np.asarray(delays)
 
         conversion_start_ns = time.monotonic_ns()
-        conversion = convert_paths(
-            delay_values.tolist(),
-            coefficient_values.tolist(),
-            self.sample_rate,
-            late_policy=self.config["conversion"]["late_policy"],
-            normalization="none",
-        )
+        conversions = []
+        for port in range(self.num_bs_ports):
+            coefficient_values = coefficient_array[0, 0, 0, port].reshape(-1)
+            if delay_array.ndim == 3:
+                # synthetic arrays share delays across ports
+                delay_values = delay_array[0, 0].reshape(-1)
+            else:
+                delay_values = delay_array[0, 0, 0, port].reshape(-1)
+            if coefficient_values.size != delay_values.size:
+                raise RuntimeError("coefficient and delay shapes differ")
+            conversions.append(convert_paths(
+                delay_values.tolist(),
+                coefficient_values.tolist(),
+                self.sample_rate,
+                late_policy=self.config["conversion"]["late_policy"],
+                normalization="none",
+            ))
         conversion_end_ns = time.monotonic_ns()
         calculation_end_ns = conversion_end_ns
         return {
@@ -142,7 +164,10 @@ class MovingSionnaScene:
             },
             "transmitter_position": _point_json(self.transmitter.position),
             "receiver_position": _point_json(self.receiver.position),
-            "conversion": conversion,
+            "num_bs_ports": self.num_bs_ports,
+            # port 0 stays under the legacy key
+            "conversion": conversions[0],
+            "conversions": conversions,
         }
 
 def direct_path_record(point_report):

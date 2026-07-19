@@ -66,20 +66,31 @@ def ue_zmq_addr():
     )
 
 
-def gnb_downlink_endpoint():
-    return _endpoint(
-        "SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT",
-        gnb_zmq_addr(),
-        _env_int("SRSRAN_ZMQ_GNB_DOWNLINK_PORT", 2000),
-    )
+def gnb_antennas():
+    return _env_int("SRSRAN_GNB_ANTENNAS", 1)
 
 
-def gnb_uplink_endpoint():
-    return _endpoint(
-        "SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT",
-        ue_zmq_addr(),
-        _env_int("SRSRAN_ZMQ_GNB_UPLINK_PORT", 2001),
-    )
+def gnb_downlink_endpoint(antenna=0):
+    # antenna 0 keeps the legacy endpoint/port
+    if antenna == 0:
+        return _endpoint(
+            "SRSRAN_ZMQ_GNB_DOWNLINK_ENDPOINT",
+            gnb_zmq_addr(),
+            _env_int("SRSRAN_ZMQ_GNB_DOWNLINK_PORT", 2000),
+        )
+    base = _env_int("SRSRAN_ZMQ_GNB_DOWNLINK_PORT", 2000)
+    return f"tcp://{gnb_zmq_addr()}:{base + 2 * antenna}"
+
+
+def gnb_uplink_endpoint(antenna=0):
+    if antenna == 0:
+        return _endpoint(
+            "SRSRAN_ZMQ_GNB_UPLINK_ENDPOINT",
+            ue_zmq_addr(),
+            _env_int("SRSRAN_ZMQ_GNB_UPLINK_PORT", 2001),
+        )
+    base = _env_int("SRSRAN_ZMQ_GNB_UPLINK_PORT", 2001)
+    return f"tcp://{ue_zmq_addr()}:{base + 2 * antenna}"
 
 
 def ue_uplink_endpoint(ue_number):

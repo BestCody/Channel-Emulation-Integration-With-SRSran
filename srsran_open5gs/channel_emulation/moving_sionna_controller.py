@@ -18,6 +18,8 @@ from channel_protocol import build_update  # noqa: E402
 from channel_protocol import validate_taps  # noqa: E402
 from sionna_moving import MovingSionnaScene  # noqa: E402
 from sionna_radio_config import load_radio_config  # noqa: E402
+from sionna_scene import antenna_array_dims  # noqa: E402
+from sionna_scene import antenna_port_count  # noqa: E402
 from sionna_scene import load_scene_config  # noqa: E402
 from sionna_scene import sample_ue_positions  # noqa: E402
 from sionna_scene import scene_bounding_box  # noqa: E402
@@ -36,8 +38,7 @@ def write_json(path, value):
     )
 
 
-def protocol_taps(point_report):
-    conversion = point_report["conversion"]
+def protocol_taps(conversion):
     if not conversion["safe_to_send"]:
         raise ValueError("Sionna result is not safe to send")
     if conversion["normalization"] != "none":
@@ -51,15 +52,30 @@ def protocol_taps(point_report):
     return validate_taps(taps)
 
 
-def stream_cir(client, taps, sequence, ue_index=0):
+def protocol_taps_per_port(point_report):
+    # one tap set per gNB antenna port
+    return tuple(
+        protocol_taps(conversion)
+        for conversion in point_report["conversions"]
+    )
+
+
+def stream_cir(client, taps, sequence, ue_index=0, bs_index=0):
     message = build_update(
         taps=taps,
         sequence=sequence,
         direction="both",
         client_send_ns=time.time_ns(),
         ue_index=ue_index,
+        bs_index=bs_index,
     )
     client.stream(message)
+
+
+def scene_bs_ports(config):
+    antenna = config["antenna"]
+    rows, cols = antenna_array_dims(antenna, "bs_array")
+    return antenna_port_count(rows, cols, antenna["polarization"])
 
 
 def blend_to_protocol(previous_taps, current_taps, alpha):
@@ -132,6 +148,7 @@ def run_live(args, radio, ue_setups):
         )
         for ue_index, config, trajectory in ue_setups
     ]
+    num_bs_ports = scene_bs_ports(ue_setups[0][1])
     client = ChannelClient(args.endpoint, stream_endpoint=args.stream_endpoint)
     records = []
     try:
@@ -140,6 +157,11 @@ def run_live(args, radio, ue_setups):
             raise ValueError("live sample rate does not match")
         if int(config_response.get("num_ues", 1)) != len(scenes):
             raise ValueError("live flowgraph UE count does not match")
+        if int(config_response.get("gnb_antennas", 1)) != num_bs_ports:
+            raise ValueError(
+                "live flowgraph gNB antenna count does not match "
+                "the scene bs_array"
+            )
 
         steps = max(1, int(args.interp_steps))
         update_interval_ns = scenes[0][2].update_interval_ns
@@ -147,40 +169,47 @@ def run_live(args, radio, ue_setups):
         step_sleep_s = update_interval_ns / steps / 1e9
         sequence = int(client.get_status()["last_accepted_sequence"]) + 1
 
+        def stream_ports(ue_index, port_taps, index, alpha):
+            nonlocal sequence
+            for port, taps in enumerate(port_taps):
+                stream_cir(
+                    client, taps, sequence,
+                    ue_index=ue_index, bs_index=port + 1,
+                )
+                records.append({
+                    "ue_index": ue_index,
+                    "bs_index": port + 1,
+                    "index": index,
+                    "alpha": alpha,
+                    "tap_count": len(taps),
+                })
+                sequence += 1
+
         previous = {}
         for ue_index, scene, trajectory in scenes:
-            taps = protocol_taps(scene.solve(trajectory.points[0]))
-            stream_cir(client, taps, sequence, ue_index=ue_index)
-            records.append({
-                "ue_index": ue_index,
-                "index": 0,
-                "alpha": 1.0,
-                "tap_count": len(taps),
-            })
-            previous[ue_index] = taps
-            sequence += 1
+            port_taps = protocol_taps_per_port(
+                scene.solve(trajectory.points[0])
+            )
+            stream_ports(ue_index, port_taps, 0, 1.0)
+            previous[ue_index] = port_taps
 
         epoch_created_ns = time.monotonic_ns()
         for index in range(1, num_points):
             current = {}
             for ue_index, scene, trajectory in scenes:
-                current[ue_index] = protocol_taps(
+                current[ue_index] = protocol_taps_per_port(
                     scene.solve(trajectory.points[index])
                 )
             for step in range(1, steps + 1):
                 alpha = step / steps
                 for ue_index, scene, trajectory in scenes:
-                    blended = blend_to_protocol(
-                        previous[ue_index], current[ue_index], alpha
+                    blended = tuple(
+                        blend_to_protocol(before, after, alpha)
+                        for before, after in zip(
+                            previous[ue_index], current[ue_index]
+                        )
                     )
-                    stream_cir(client, blended, sequence, ue_index=ue_index)
-                    records.append({
-                        "ue_index": ue_index,
-                        "index": index,
-                        "alpha": alpha,
-                        "tap_count": len(blended),
-                    })
-                    sequence += 1
+                    stream_ports(ue_index, blended, index, alpha)
                 time.sleep(step_sleep_s)
             previous = current
 
@@ -190,6 +219,7 @@ def run_live(args, radio, ue_setups):
             "schema_version": 1,
             "mode": "live-moving-channel-stream",
             "num_ues": len(scenes),
+            "gnb_antennas": num_bs_ports,
             "update_interval_ns": update_interval_ns,
             "interp_steps": steps,
             "per_symbol_channels": True,
